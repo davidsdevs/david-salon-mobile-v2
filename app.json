@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "David's Salon",
+    "slug": "davids-salon-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/logo.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "sdkVersion": "54.0.0",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#160B53"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.davidssalon.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#160B53"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.davidssalon.mobile"
+    },
+    "web": {
+      "favicon": "./assets/logo.png"
+    },
+    "description": "Professional hair salon services at your fingertips",
+    "primaryColor": "#160B53",
+    "platforms": ["ios", "android", "web"]
+  }
+}

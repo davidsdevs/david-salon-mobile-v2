@@ -1,0 +1,992 @@
+import React from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Dimensions,
+  Platform,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import ScreenWrapper from '../../components/ScreenWrapper';
+import useAuth from '../../hooks/useAuth';
+import { APP_CONFIG, FONTS } from '../../constants';
+import { Appointment } from '../../types';
+
+const { width } = Dimensions.get('window');
+
+export default function DashboardScreen() {
+  const { user } = useAuth();
+  const navigation = useNavigation();
+
+
+  const upcomingAppointments: Appointment[] = [
+    {
+      id: 1,
+      service: 'Hair Cut & Style',
+      stylist: 'Sarah Johnson',
+      date: '2025-08-15',
+      time: '2:00 PM',
+      location: 'Naga City',
+      status: 'confirmed',
+    },
+    {
+      id: 2,
+      service: 'Manicure',
+      stylist: 'Lisa Chen',
+      date: '2025-08-15',
+      time: '2:00 PM',
+      location: 'Naga City',
+      status: 'pending',
+    },
+  ];
+
+  const recentVisits = [
+    {
+      id: 1,
+      service: 'Hair Cut & Style',
+      stylist: 'Sarah Johnson',
+      date: '2025-08-15',
+      price: '₱1,500',
+      rating: 5,
+    },
+    {
+      id: 2,
+      service: 'Hair Color',
+      stylist: 'Maria Rodriguez',
+      date: '2025-03-26',
+      price: '₱3,200',
+      rating: 5,
+    },
+    {
+      id: 3,
+      service: 'Manicure',
+      stylist: 'Lisa Chen',
+      date: '2025-01-10',
+      price: '₱350',
+      rating: 5,
+    },
+  ];
+
+  const rewards = [
+    {
+      id: 1,
+      title: 'Free Hair Cut',
+      description: 'Get a complimentary hair cut service',
+      points: '1000 pts',
+      buttonText: 'Redeem',
+      buttonStyle: 'filled',
+      available: true,
+    },
+    {
+      id: 2,
+      title: '20% Off Facial',
+      description: 'Enjoy 20% discount on facial treatments',
+      points: '500 pts',
+      buttonText: 'Redeem',
+      buttonStyle: 'filled',
+      available: true,
+    },
+    {
+      id: 3,
+      title: 'Free Manicure',
+      description: 'Complimentary manicure service',
+      points: '300 pts',
+      buttonText: 'Redeem',
+      buttonStyle: 'filled',
+      available: true,
+    },
+  ];
+
+
+  // Platform-specific rendering
+  const isWeb = Platform.OS === 'web';
+  
+  if (isWeb) {
+    // WEB VIEW LAYOUT - DO NOT MODIFY THIS SECTION
+    // This layout is specifically designed for web view and should remain unchanged
+    return (
+      <View style={styles.webContainer}>
+          {/* Welcome Banner */}
+          <View style={styles.welcomeBanner}>
+            <Text style={styles.welcomeTitle}>Welcome back, {user?.name || 'Claire Cruz'}!</Text>
+            <Text style={styles.welcomeSubtitle}>
+              Ready for your next beauty transformation?
+            </Text>
+          </View>
+
+          {/* Membership Card - Web View Only */}
+          <LinearGradient
+            colors={['#160B53', '#2D1B69', '#4A2C8A']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.membershipCard}
+          >
+            <View style={styles.membershipTop}>
+              <View style={styles.membershipLeft}>
+                <Text style={styles.membershipTitle}>{user?.membershipLevel || 'Gold'} Member</Text>
+                <Text style={styles.membershipSince}>Member since {user?.memberSince || '2022'}</Text>
+              </View>
+              <View style={styles.membershipRight}>
+                <Text style={styles.pointsValue}>{user?.points || 1250}</Text>
+                <Text style={styles.pointsLabel}>Points</Text>
+              </View>
+            </View>
+            
+            {/* Progress Section */}
+            <View style={styles.progressSection}>
+              <Text style={styles.progressLabel}>Progress to Platinum</Text>
+              <View style={styles.progressBar}>
+                <LinearGradient
+                  colors={['#FFFFFF', '#E8E8E8']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.progressFill}
+                />
+              </View>
+            </View>
+
+            {/* Bottom Section - Key Metrics */}
+            <View style={styles.metricsSection}>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricValue}>24</Text>
+                <Text style={styles.membershipMetricLabel}>Total Visits</Text>
+              </View>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricValue}>3</Text>
+                <Text style={styles.membershipMetricLabel}>Referrals</Text>
+              </View>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricValue}>₱2850</Text>
+                <Text style={styles.membershipMetricLabel}>Total Earned</Text>
+              </View>
+            </View>
+          </LinearGradient>
+
+          {/* Quick Stats - 4 column grid */}
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <View style={styles.statHeader}>
+                <Text style={styles.statLabel}>Today Appointments</Text>
+                <View style={styles.statIcon}>
+                  <Ionicons name="calendar" size={24} color="#160B53" />
+                </View>
+              </View>
+              <Text style={styles.statValue}>8</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={styles.statHeader}>
+                <Text style={styles.statLabel}>Total Visits</Text>
+                <View style={styles.statIcon}>
+                  <Ionicons name="checkmark-circle" size={24} color="#10B981" />
+                </View>
+              </View>
+              <Text style={styles.statValue}>23</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={styles.statHeader}>
+                <Text style={styles.statLabel}>Loyalty Points</Text>
+                <View style={styles.statIcon}>
+                  <Ionicons name="gift" size={24} color="#8B5CF6" />
+                </View>
+              </View>
+              <Text style={styles.statValue}>1250</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={styles.statHeader}>
+                <Text style={styles.statLabel}>Favorite Stylists</Text>
+                <View style={styles.statIcon}>
+                  <Ionicons name="heart" size={24} color="#EF4444" />
+                </View>
+              </View>
+              <Text style={styles.statValue}>3</Text>
+            </View>
+          </View>
+
+          {/* Upcoming Appointments */}
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Upcoming Appointment</Text>
+              <TouchableOpacity style={styles.bookButton}>
+                <Text style={styles.bookButtonText}>Book New Appointment</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.appointmentsList}>
+              {upcomingAppointments.map((appointment) => (
+                <View key={appointment.id} style={styles.appointmentCard}>
+                  <View style={styles.appointmentContent}>
+                    <Text style={styles.appointmentService}>{appointment.service}</Text>
+                    <Text style={styles.appointmentDetails}>
+                      with {appointment.stylist}
+                    </Text>
+                    <Text style={styles.appointmentDetails}>
+                      {appointment.date} at {appointment.time}
+                    </Text>
+                    <Text style={styles.appointmentDetails}>
+                      {appointment.location}
+                    </Text>
+                  </View>
+                  <View style={[
+                    styles.statusBadge,
+                    appointment.status === 'confirmed' ? styles.statusConfirmed : styles.statusPending
+                  ]}>
+                    <Text style={styles.statusText}>{appointment.status}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Two Column Layout */}
+          <View style={styles.twoColumnLayout}>
+            {/* Recent Visits */}
+            <View style={styles.columnCard}>
+              <Text style={styles.sectionTitle}>Recent Visits</Text>
+              <View style={styles.visitsList}>
+                {recentVisits.map((visit) => (
+                  <View key={visit.id} style={styles.visitCard}>
+                    <View style={styles.visitLeft}>
+                      <Text style={styles.visitService}>{visit.service}</Text>
+                      <Text style={styles.visitStylist}>with {visit.stylist}</Text>
+                      <Text style={styles.visitDate}>{visit.date}</Text>
+                    </View>
+                    <View style={styles.visitRight}>
+                      <Text style={styles.visitPrice}>{visit.price}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            {/* Recently Bought Products */}
+            <View style={styles.columnCard}>
+              <Text style={styles.sectionTitle}>Recently Bought Products</Text>
+              <View style={styles.productsCard}>
+                <View style={styles.productsContent}>
+                  <Ionicons name="cube" size={48} color="#9CA3AF" />
+                  <Text style={styles.productsText}>No recent products purchases</Text>
+                  <TouchableOpacity style={styles.browseButton}>
+                    <Text style={styles.browseButtonText}>Browse Products &gt;</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+      </View>
+    );
+  }
+
+  // Mobile view
+  return (
+    <ScreenWrapper title="Dashboard">
+      {/* Welcome Banner */}
+      <View style={styles.welcomeBanner}>
+        <Text style={styles.welcomeTitle}>Welcome back, {user?.name || 'Claire Cruz'}!</Text>
+        <Text style={styles.welcomeSubtitle}>
+          Ready for your next beauty transformation?
+        </Text>
+      </View>
+
+      {/* Membership Card */}
+      <LinearGradient
+        colors={['#160B53', '#2D1B69', '#4A2C8A']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.membershipCard}
+      >
+        {/* Top Section - Membership & Points */}
+        <View style={styles.membershipTop}>
+          <View style={styles.membershipLeft}>
+            <Text style={styles.membershipTitle}>{user?.membershipLevel || 'Gold'} Member</Text>
+            <Text style={styles.membershipSince}>Member since {user?.memberSince || '2022'}</Text>
+          </View>
+          <View style={styles.membershipRight}>
+            <Text style={styles.pointsValue}>{user?.points || 1250}</Text>
+            <Text style={styles.pointsLabel}>Points</Text>
+          </View>
+        </View>
+
+        {/* Progress Section */}
+        <View style={styles.progressSection}>
+          <Text style={styles.progressLabel}>Progress to Platinum</Text>
+          <View style={styles.progressBar}>
+            <LinearGradient
+              colors={['#FFFFFF', '#E8E8E8']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.progressFill}
+            />
+          </View>
+        </View>
+
+        {/* Bottom Section - Key Metrics */}
+        <View style={styles.metricsSection}>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricValue}>24</Text>
+            <Text style={styles.membershipMetricLabel}>Total Visits</Text>
+          </View>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricValue}>3</Text>
+            <Text style={styles.membershipMetricLabel}>Referrals</Text>
+          </View>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricValue}>₱2850</Text>
+            <Text style={styles.membershipMetricLabel}>Total Earned</Text>
+          </View>
+        </View>
+      </LinearGradient>
+
+      {/* Available Rewards - Web View Only */}
+      {isWeb && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Available Rewards</Text>
+          <View style={styles.rewardsContainer}>
+            {rewards.map((reward) => (
+              <View key={reward.id} style={styles.rewardCard}>
+                <View style={styles.rewardContent}>
+                  <Text style={styles.rewardTitle}>{reward.title}</Text>
+                  <Text style={styles.rewardPoints}>{reward.points}</Text>
+                  <Text style={styles.rewardDescription}>{reward.description}</Text>
+                </View>
+                <TouchableOpacity 
+                  style={[
+                    styles.rewardButton,
+                    reward.buttonStyle === 'filled' && styles.rewardButtonFilled,
+                    reward.buttonStyle === 'disabled' && styles.rewardButtonDisabled
+                  ]}
+                  disabled={!reward.available}
+                >
+                  <Text style={[
+                    styles.rewardButtonText,
+                    reward.buttonStyle === 'filled' && styles.rewardButtonTextFilled,
+                    reward.buttonStyle === 'disabled' && styles.rewardButtonTextDisabled
+                  ]}>
+                    {reward.buttonText}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Key Metrics */}
+      <View style={styles.metricsContainer}>
+        <View style={styles.metricsRow}>
+          <View style={styles.metricCard}>
+            <View style={styles.metricIcon}>
+              <Ionicons name="calendar" size={24} color="#160B53" />
+            </View>
+            <Text style={styles.metricNumber}>8</Text>
+            <Text style={styles.metricLabel}>Today Appointments</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <View style={styles.metricIcon}>
+              <Ionicons name="time" size={24} color="#160B53" />
+            </View>
+            <Text style={styles.metricNumber}>23</Text>
+            <Text style={styles.metricLabel}>Total Visits</Text>
+          </View>
+        </View>
+        <View style={styles.metricsRow}>
+          <View style={styles.metricCard}>
+            <View style={styles.metricIcon}>
+              <Ionicons name="gift" size={24} color="#160B53" />
+            </View>
+            <Text style={styles.metricNumber}>1250</Text>
+            <Text style={styles.metricLabel}>Loyalty Points</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <View style={styles.metricIcon}>
+              <Ionicons name="heart" size={24} color="#160B53" />
+            </View>
+            <Text style={styles.metricNumber}>3</Text>
+            <Text style={styles.metricLabel}>Favorite Stylists</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Upcoming Appointments */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Upcoming Appointment</Text>
+        {upcomingAppointments.map((appointment) => (
+          <View key={appointment.id} style={styles.appointmentCard}>
+            <View style={styles.appointmentLeft}>
+              <View style={styles.appointmentIcon}>
+                <Ionicons name="calendar" size={20} color="#4A90E2" />
+              </View>
+              <View style={styles.appointmentDetails}>
+                <Text style={styles.appointmentService}>{appointment.service}</Text>
+                <Text style={styles.appointmentStylist}>with {appointment.stylist}</Text>
+                <View style={styles.appointmentInfo}>
+                  <View style={styles.appointmentInfoItem}>
+                    <Ionicons name="time" size={14} color="#666" />
+                    <Text style={styles.appointmentInfoText}>
+                      {appointment.date} at {appointment.time}
+                    </Text>
+                  </View>
+                  <View style={styles.appointmentInfoItem}>
+                    <Ionicons name="location" size={14} color="#666" />
+                    <Text style={styles.appointmentInfoText}>{appointment.location}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+            <View style={[
+              styles.statusBadge,
+              { backgroundColor: appointment.status === 'confirmed' ? '#4CAF50' : '#FF9800' }
+            ]}>
+              <Text style={styles.statusText}>{appointment.status}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Recent Visits */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Recent Visits</Text>
+        {recentVisits.map((visit) => (
+          <View key={visit.id} style={styles.visitCard}>
+            <View style={styles.visitLeft}>
+              <Text style={styles.visitService}>{visit.service}</Text>
+              <Text style={styles.visitStylist}>with {visit.stylist}</Text>
+              <Text style={styles.visitDate}>{visit.date}</Text>
+            </View>
+            <View style={styles.visitRight}>
+              <Text style={styles.visitPrice}>{visit.price}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Recently Bought Products */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Recently Bought Products</Text>
+        <View style={styles.productsCard}>
+          <Ionicons name="bag" size={48} color="#DDD" />
+          <Text style={styles.noProductsText}>No recent products purchases</Text>
+          <TouchableOpacity style={styles.browseButton}>
+            <Text style={styles.browseButtonText}>Browse Products {'>'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </ScreenWrapper>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  webContainer: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    minHeight: '100%',
+  },
+  welcomeBanner: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    marginHorizontal: Platform.OS === 'web' ? 0 : 16,
+    marginTop: Platform.OS === 'web' ? 8 : Platform.OS === 'android' ? 30 : 20,
+    marginBottom: 16,
+    padding: Platform.OS === 'web' ? 16 : 20,
+    paddingTop: Platform.OS === 'web' ? 24 : 20,
+    borderRadius: 12,
+    height: Platform.OS === 'web' ? 118 : undefined,
+  },
+  welcomeTitle: {
+    fontSize: Platform.OS === 'web' ? 25 : Platform.OS === 'ios' ? 20 : 18,
+    color: '#FFFFFF',
+    marginBottom: 6,
+    fontFamily: Platform.OS === 'web' ? FONTS.semiBold : FONTS.bold,
+  },
+  welcomeSubtitle: {
+    fontSize: Platform.OS === 'ios' ? 14 : Platform.OS === 'android' ? 13 : 15,
+    color: '#FFFFFF',
+    opacity: 0.9,
+    fontFamily: FONTS.regular,
+  },
+  membershipCard: {
+    marginHorizontal: Platform.OS === 'web' ? 0 : 16,
+    marginBottom: Platform.OS === 'web' ? 24 : 16,
+    padding: Platform.OS === 'android' ? 16 : Platform.OS === 'ios' ? 18 : 20,
+    borderRadius: Platform.OS === 'web' ? 16 : 12,
+    shadowColor: Platform.OS === 'web' ? '#000000' : '#000',
+    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 2 },
+    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.1,
+    shadowRadius: Platform.OS === 'web' ? 15 : 8,
+    elevation: Platform.OS === 'web' ? 0 : 8,
+    minHeight: Platform.OS === 'web' ? 200 : 'auto',
+    width: Platform.OS === 'web' ? '100%' : 'auto',
+  },
+  membershipTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  membershipLeft: {
+    flex: 1,
+  },
+  membershipTitle: {
+    fontSize: Platform.OS === 'android' ? 18 : Platform.OS === 'ios' ? 19 : 20,
+    color: '#FFFFFF',
+    marginBottom: 4,
+    fontFamily: 'Poppins_700Bold',
+  },
+  membershipSince: {
+    fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
+    color: '#FFFFFF',
+    fontFamily: 'Poppins_400Regular',
+  },
+  membershipRight: {
+    alignItems: 'flex-end',
+  },
+  pointsValue: {
+    fontSize: Platform.OS === 'android' ? 28 : Platform.OS === 'ios' ? 30 : 32,
+    color: '#FFFFFF',
+    fontFamily: 'Poppins_700Bold',
+  },
+  pointsLabel: {
+    fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
+    color: '#FFFFFF',
+    fontFamily: 'Poppins_400Regular',
+  },
+  progressSection: {
+    marginBottom: 20,
+  },
+  progressLabel: {
+    fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
+    color: '#FFFFFF',
+    marginBottom: 8,
+    fontFamily: 'Poppins_400Regular',
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    width: '75%',
+    borderRadius: 4,
+  },
+  metricsSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  metricItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  metricValue: {
+    fontSize: Platform.OS === 'android' ? 20 : Platform.OS === 'ios' ? 22 : 24,
+    color: '#FFFFFF',
+    marginBottom: 4,
+    fontFamily: 'Poppins_700Bold',
+  },
+  membershipMetricLabel: {
+    fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    fontFamily: 'Poppins_400Regular',
+  },
+  metricsContainer: {
+    paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
+    marginBottom: 20,
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  metricCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 14 : 16,
+    alignItems: 'center',
+    width: (width - 48) / 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+    position: 'relative',
+    minHeight: Platform.OS === 'android' ? 90 : Platform.OS === 'ios' ? 95 : 100,
+  },
+  metricIcon: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+  },
+  metricNumber: {
+    fontSize: Platform.OS === 'android' ? 24 : Platform.OS === 'ios' ? 26 : 28,
+    color: '#160B53',
+    marginTop: 24,
+    marginBottom: 6,
+    fontFamily: 'Poppins_700Bold',
+  },
+  metricLabel: {
+    fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
+    color: '#160B53',
+    textAlign: 'center',
+    fontFamily: 'Poppins_400Regular',
+  },
+  section: {
+    paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
+    marginBottom: 20,
+  },
+  sectionCard: {
+    backgroundColor: Platform.OS === 'web' ? '#FFFFFF' : 'transparent',
+    borderRadius: Platform.OS === 'web' ? 12 : 0,
+    padding: Platform.OS === 'web' ? 20 : 0,
+    marginBottom: Platform.OS === 'web' ? 24 : 20,
+    shadowColor: Platform.OS === 'web' ? '#000000' : 'transparent',
+    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 0 },
+    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0,
+    shadowRadius: Platform.OS === 'web' ? 15 : 0,
+    elevation: Platform.OS === 'web' ? 0 : 0,
+  },
+  sectionTitle: {
+    fontSize: Platform.OS === 'web' ? 16 : Platform.OS === 'ios' ? 15 : Platform.OS === 'android' ? 14 : 16,
+    color: Platform.OS === 'web' ? '#000000' : '#160B53',
+    marginBottom: Platform.OS === 'web' ? 16 : 12,
+    fontFamily: Platform.OS === 'web' ? 'Poppins_600SemiBold' : 'Poppins_600SemiBold',
+  },
+  appointmentCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 14 : 16,
+    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    shadowColor: Platform.OS === 'web' ? '#000000' : '#000',
+    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 1 },
+    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.05,
+    shadowRadius: Platform.OS === 'web' ? 15 : 4,
+    elevation: Platform.OS === 'web' ? 0 : 1,
+  },
+  appointmentLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  appointmentIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E3F2FD',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  appointmentDetails: {
+    flex: 1,
+    fontSize: Platform.OS === 'web' ? 14 : 14,
+    color: Platform.OS === 'web' ? '#6B7280' : '#666',
+    marginBottom: Platform.OS === 'web' ? 2 : 4,
+    fontFamily: Platform.OS === 'web' ? FONTS.regular : 'Poppins_400Regular',
+  },
+  appointmentService: {
+    fontSize: Platform.OS === 'web' ? 16 : Platform.OS === 'ios' ? 15 : Platform.OS === 'android' ? 14 : 16,
+    color: Platform.OS === 'web' ? '#160B53' : '#160B53',
+    marginBottom: Platform.OS === 'web' ? 4 : 4,
+    fontFamily: Platform.OS === 'web' ? FONTS.semiBold : 'Poppins_700Bold',
+  },
+  appointmentStylist: {
+    fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
+    color: '#666',
+    marginBottom: 8,
+    fontFamily: 'Poppins_400Regular',
+  },
+  appointmentInfo: {
+    gap: 4,
+  },
+  appointmentInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  appointmentInfoText: {
+    fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
+    color: '#666',
+    marginLeft: 5,
+    fontFamily: 'Poppins_400Regular',
+  },
+  statusBadge: {
+    paddingHorizontal: Platform.OS === 'web' ? 12 : 12,
+    paddingVertical: Platform.OS === 'web' ? 6 : 6,
+    borderRadius: Platform.OS === 'web' ? 12 : 15,
+    alignSelf: Platform.OS === 'web' ? 'flex-start' : 'auto',
+  },
+  statusText: {
+    fontSize: Platform.OS === 'web' ? 12 : Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
+    color: Platform.OS === 'web' ? '#FFFFFF' : '#FFFFFF',
+    fontFamily: Platform.OS === 'web' ? FONTS.medium : 'Poppins_400Regular',
+    textTransform: Platform.OS === 'web' ? 'capitalize' : 'none',
+  },
+  visitCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    shadowColor: Platform.OS === 'web' ? '#000000' : '#000',
+    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 1 },
+    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.05,
+    shadowRadius: Platform.OS === 'web' ? 15 : 4,
+    elevation: Platform.OS === 'web' ? 0 : 1,
+  },
+  visitLeft: {
+    flex: 1,
+  },
+  visitService: {
+    fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
+    color: '#160B53',
+    marginBottom: 4,
+    fontFamily: 'Poppins_700Bold',
+  },
+  visitStylist: {
+    fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
+    color: '#666',
+    marginBottom: 4,
+    fontFamily: 'Poppins_400Regular',
+  },
+  visitDate: {
+    fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
+    color: '#999',
+    fontFamily: 'Poppins_400Regular',
+  },
+  visitRight: {
+    alignItems: 'flex-end',
+  },
+  visitPrice: {
+    fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
+    color: '#160B53',
+    marginBottom: 5,
+    fontFamily: 'Poppins_700Bold',
+  },
+  productsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 15,
+    padding: Platform.OS === 'android' ? 30 : Platform.OS === 'ios' ? 35 : 40,
+    alignItems: 'center',
+    shadowColor: Platform.OS === 'web' ? '#000000' : '#000',
+    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 2 },
+    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.1,
+    shadowRadius: Platform.OS === 'web' ? 15 : 8,
+    elevation: Platform.OS === 'web' ? 0 : 3,
+  },
+  noProductsText: {
+    fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
+    color: '#666',
+    marginTop: 15,
+    marginBottom: 20,
+    fontFamily: 'Poppins_400Regular',
+  },
+  browseButton: {
+    borderWidth: 1,
+    borderColor: '#DDD',
+    paddingHorizontal: Platform.OS === 'android' ? 16 : Platform.OS === 'ios' ? 18 : 20,
+    paddingVertical: Platform.OS === 'android' ? 8 : Platform.OS === 'ios' ? 9 : 10,
+    borderRadius: 20,
+  },
+  browseButtonText: {
+    fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
+    color: '#666',
+    fontFamily: 'Poppins_400Regular',
+  },
+  rewardsContainer: {
+    gap: 12,
+  },
+  rewardCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  rewardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  rewardLeft: {
+    flex: 1,
+  },
+  rewardTitle: {
+    fontSize: 16,
+    color: '#160B53',
+    marginBottom: 4,
+    fontFamily: FONTS.bold,
+  },
+  rewardPoints: {
+    fontSize: 14,
+    color: '#160B53',
+    marginBottom: 8,
+    fontFamily: FONTS.semiBold,
+  },
+  rewardDescription: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+    fontFamily: FONTS.regular,
+  },
+  rewardButton: {
+    borderWidth: 1,
+    borderColor: '#160B53',
+    borderRadius: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  rewardButtonFilled: {
+    backgroundColor: '#160B53',
+    borderColor: '#160B53',
+  },
+  rewardButtonDisabled: {
+    backgroundColor: '#E0E0E0',
+    borderColor: '#E0E0E0',
+  },
+  rewardButtonText: {
+    color: '#160B53',
+    fontSize: 12,
+    fontFamily: FONTS.semiBold,
+  },
+  rewardButtonTextFilled: {
+    color: '#FFFFFF',
+  },
+  rewardButtonTextDisabled: {
+    color: '#999',
+  },
+  // ========================================
+  // WEB-SPECIFIC STYLES - DO NOT MODIFY
+  // These styles are ONLY for web view and should remain unchanged
+  // ========================================
+  statsGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 12,
+    height: Platform.OS === 'web' ? 131 : undefined,
+    shadowColor: Platform.OS === 'web' ? '#000000' : '#000',
+    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 1 },
+    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.05,
+    shadowRadius: Platform.OS === 'web' ? 15 : 4,
+    elevation: Platform.OS === 'web' ? 0 : 1,
+  },
+  statContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  statHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Platform.OS === 'web' ? 16 : 8,
+  },
+  statText: {
+    flex: 1,
+  },
+  statLabel: {
+    fontSize: Platform.OS === 'web' ? 14 : 12,
+    color: Platform.OS === 'web' ? '#000000' : '#6B7280',
+    fontFamily: Platform.OS === 'web' ? FONTS.medium : FONTS.regular,
+  },
+  statValue: {
+    fontSize: Platform.OS === 'web' ? 32 : 20,
+    color: Platform.OS === 'web' ? '#000000' : '#111827',
+    fontFamily: Platform.OS === 'web' ? FONTS.bold : FONTS.bold,
+  },
+  statIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  appointmentsList: {
+    gap: 8,
+  },
+  bookButton: {
+    backgroundColor: '#160B53',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  bookButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+  },
+  twoColumnLayout: {
+    flexDirection: 'row',
+    gap: 20,
+    marginBottom: 20,
+  },
+  column: {
+    flex: 1,
+  },
+  columnCard: {
+    flex: 1,
+    backgroundColor: Platform.OS === 'web' ? '#FFFFFF' : 'transparent',
+    borderRadius: Platform.OS === 'web' ? 12 : 0,
+    padding: Platform.OS === 'web' ? 20 : 0,
+    shadowColor: Platform.OS === 'web' ? '#000000' : 'transparent',
+    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 0 },
+    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0,
+    shadowRadius: Platform.OS === 'web' ? 15 : 0,
+    elevation: Platform.OS === 'web' ? 0 : 0,
+  },
+  visitsList: {
+    gap: 8,
+  },
+  productsContent: {
+    alignItems: 'center',
+  },
+  productsText: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 16,
+    marginBottom: 20,
+    fontFamily: FONTS.regular,
+  },
+  appointmentContent: {
+    flex: 1,
+    marginRight: 16,
+  },
+  statusConfirmed: {
+    backgroundColor: '#10B981',
+  },
+  statusPending: {
+    backgroundColor: '#F59E0B',
+  },
+  // ========================================
+  // END OF WEB-SPECIFIC STYLES
+  // ========================================
+});
