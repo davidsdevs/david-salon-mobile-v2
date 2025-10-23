@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider, useSelector, useDispatch } from 'react-redux';
 import { AppState, Platform, View, Text } from 'react-native';
+import { BookingProvider } from './src/context/BookingContext';
 
 // Import navigation and screens
 import RootNavigator from './src/navigation/RootNavigator';
@@ -26,10 +27,10 @@ function AppContent() {
   const [userType, setUserType] = useState<'client' | 'stylist'>('client');
   
   // Get auth state from Redux
-  const { isAuthenticated, user, isLoading: authLoading } = useSelector((state: RootState) => state.auth);
+  const { isAuthenticated, user, isLoading: authLoading, isWaitingForRoleSelection } = useSelector((state: RootState) => state.auth);
   
-  // Use Redux auth state for login status
-  const isLoggedIn = isAuthenticated;
+  // Use Redux auth state for login status - but don't navigate if waiting for role selection
+  const isLoggedIn = isAuthenticated && !isWaitingForRoleSelection;
   
   // Debug Redux auth state changes
   useEffect(() => {
@@ -51,26 +52,58 @@ function AppContent() {
     console.log('🔍 Setting user type based on user data:', { 
       user: user?.email, 
       userType: user?.userType,
-      role: (user as any)?.role,
+      roles: (user as any)?.roles,
       hasUser: !!user,
       userKeys: user ? Object.keys(user) : []
     });
     
     if (user) {
-      // Check role first to determine if user is allowed
-      const userRole = (user as any)?.role || user?.userType;
-      console.log('🔍 Checking user role:', userRole);
-      
-      if (['client', 'stylist'].includes(userRole)) {
-        // Valid role, set userType
-        const newUserType = userRole as 'client' | 'stylist';
-        console.log('🔍 Valid role, setting userType to:', newUserType);
-        setUserType(newUserType);
+      // Check if user has a selected role (from role selection modal)
+      const selectedRole = (user as any)?.selectedRole;
+      if (selectedRole && ['client', 'stylist'].includes(selectedRole)) {
+        console.log('🔍 User has selected role:', selectedRole);
+        setUserType(selectedRole as 'client' | 'stylist');
+        return;
+      }
+
+      // Check if user has roles array
+      const userRoles = (user as any)?.roles;
+      if (userRoles && Array.isArray(userRoles)) {
+        const validRoles = userRoles.filter(role => ['client', 'stylist'].includes(role));
+        
+        if (validRoles.length > 1) {
+          // User has multiple roles - this should be handled by the role selection modal
+          // For now, default to the first valid role
+          const newUserType = validRoles[0] as 'client' | 'stylist';
+          console.log('🔍 Multiple roles detected, defaulting to:', newUserType);
+          setUserType(newUserType);
+        } else if (validRoles.length === 1) {
+          // User has single role
+          const newUserType = validRoles[0] as 'client' | 'stylist';
+          console.log('🔍 Single role, setting userType to:', newUserType);
+          setUserType(newUserType);
+        } else {
+          // No valid roles
+          console.log('🔍 No valid roles, logging out user');
+          dispatch(logoutUser());
+          setUserType('client');
+        }
       } else {
-        // Invalid role, logout user
-        console.log('🔍 Invalid role, logging out user:', userRole);
-        dispatch(logoutUser());
-        setUserType('client');
+        // Fallback to userType if roles array is not available
+        const userRole = (user as any)?.role || user?.userType;
+        console.log('🔍 Checking user role (fallback):', userRole);
+        
+        if (['client', 'stylist'].includes(userRole)) {
+          // Valid role, set userType
+          const newUserType = userRole as 'client' | 'stylist';
+          console.log('🔍 Valid role (fallback), setting userType to:', newUserType);
+          setUserType(newUserType);
+        } else {
+          // Invalid role, logout user
+          console.log('🔍 Invalid role (fallback), logging out user:', userRole);
+          dispatch(logoutUser());
+          setUserType('client');
+        }
       }
     } else {
       // No user data, reset to client
@@ -210,12 +243,14 @@ function AppContent() {
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
-        <StatusBar style="auto" />
-        <RootNavigator 
-          isOnboardingComplete={isOnboardingComplete}
-          isLoggedIn={isLoggedIn}
-          userType={userType}
-        />
+        <BookingProvider>
+          <StatusBar style="auto" />
+          <RootNavigator 
+            isOnboardingComplete={isOnboardingComplete}
+            isLoggedIn={isLoggedIn}
+            userType={userType}
+          />
+        </BookingProvider>
       </SafeAreaProvider>
     </ErrorBoundary>
   );

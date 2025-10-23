@@ -29,6 +29,7 @@ export interface Service {
   price: number;
   description: string;
   isActive: boolean;
+  isChemical?: boolean;
   branchId?: string;
 }
 
@@ -75,6 +76,24 @@ export interface AppointmentData {
 }
 
 class MobileAppointmentService {
+  // Helper function to normalize service_id to array format
+  private static normalizeServiceIds(serviceId: any): string[] {
+    if (!serviceId) return [];
+    
+    if (Array.isArray(serviceId)) {
+      return serviceId;
+    }
+    
+    if (typeof serviceId === 'string') {
+      // Handle comma-separated strings or single service
+      return serviceId.includes(',') 
+        ? serviceId.split(',').map(id => id.trim())
+        : [serviceId];
+    }
+    
+    console.warn('⚠️ Invalid service_id format:', serviceId);
+    return [];
+  }
   // Get all branches
   async getBranches(): Promise<Branch[]> {
     try {
@@ -140,7 +159,15 @@ class MobileAppointmentService {
       
       branchServicesSnapshot.forEach((doc) => {
         const data = doc.data();
+        console.log(`🔍 COMPLETE RAW DATA for ${data.name}:`, data);
         if (!data.archived) { // Only active services
+          console.log(`🔍 Raw database data for ${data.name}:`, {
+            isChemical: data.isChemical,
+            isChemicalType: typeof data.isChemical,
+            isChemica1: data.isChemica1,
+            allFields: Object.keys(data)
+          });
+          
           branchServices.push({
             id: doc.id,
             name: data.name || 'Unknown Service',
@@ -149,12 +176,14 @@ class MobileAppointmentService {
             price: data.price || 0,
             description: data.description || '',
             isActive: data.isActive !== false,
+            isChemical: data.isChemical || data.isChemica1 || false,
             branchId: data.branchId,
           });
         }
       });
       
       console.log('✅ Found branch-specific services:', branchServices.length);
+      console.log('🔍 Branch services data:', branchServices);
       
       // If no branch-specific services, fallback to global services
       if (branchServices.length === 0) {
@@ -166,6 +195,13 @@ class MobileAppointmentService {
         globalServicesSnapshot.forEach((doc) => {
           const data = doc.data();
           if (!data.archived) { // Only active services
+            console.log(`🔍 Raw GLOBAL database data for ${data.name}:`, {
+              isChemical: data.isChemical,
+              isChemicalType: typeof data.isChemical,
+              isChemica1: data.isChemica1,
+              allFields: Object.keys(data)
+            });
+            
             globalServices.push({
               id: doc.id,
               name: data.name || 'Unknown Service',
@@ -174,12 +210,14 @@ class MobileAppointmentService {
               price: data.price || 0,
               description: data.description || '',
               isActive: data.isActive !== false,
+              isChemical: data.isChemical || data.isChemica1 || false,
               branchId: data.branchId,
             });
           }
         });
         
         console.log('✅ Found global services:', globalServices.length);
+        console.log('🔍 Global services data:', globalServices);
         return globalServices;
       }
       
@@ -195,37 +233,201 @@ class MobileAppointmentService {
     try {
       console.log('🔄 Fetching available services for branch:', branchId);
       
-      // Get all services and staff services in parallel
-      const [allServices, staffServices] = await Promise.all([
-        this.getServicesByBranch(branchId),
-        this.getStaffServicesByBranch(branchId)
-      ]);
+      // Get all services and filter by branch availability
+      const servicesRef = collection(db, COLLECTIONS.SERVICES);
+      const q = query(servicesRef, where('isActive', '==', true));
+      const querySnapshot = await getDocs(q);
       
-      console.log('📊 All services count:', allServices.length);
-      console.log('📊 Staff services count:', staffServices.length);
-      console.log('📊 Staff services data:', staffServices);
+      const availableServices: Service[] = [];
       
-      // If no staff services, return all services (fallback)
-      if (staffServices.length === 0) {
-        console.log('⚠️ No staff services found, returning all services');
-        return allServices;
-      }
-      
-      // Filter services based on what staff can actually provide
-      const allowedServiceIds = new Set(staffServices.map(ss => ss.serviceId));
-      console.log('📊 Allowed service IDs:', Array.from(allowedServiceIds));
-      
-      const availableServices = allServices.filter(service => {
-        const isAllowed = allowedServiceIds.has(service.id);
-        console.log(`📊 Service ${service.name} (${service.id}): ${isAllowed ? 'ALLOWED' : 'FILTERED OUT'}`);
-        return isAllowed;
+      querySnapshot.forEach(doc => {
+        const data = doc.data();
+        console.log('🔍 Processing service:', {
+          docId: doc.id,
+          serviceName: data.name,
+          branches: data.branches,
+          targetBranchId: branchId,
+          isAvailableAtBranch: data.branches && data.branches.includes(branchId)
+        });
+        
+        // Check if this service is available at the selected branch
+        if (data.branches && data.branches.includes(branchId)) {
+          const service = {
+            id: doc.id,
+            name: data.name,
+            category: data.category,
+            duration: data.duration,
+            price: data.prices && data.prices.length > 0 ? data.prices[0] : 0, // Use first price
+            description: data.description,
+            isActive: data.isActive,
+            isChemical: data.isChemical || data.isChemica1 || false,
+            branchId: branchId
+          };
+          console.log('✅ Adding service:', service);
+          availableServices.push(service);
+        }
       });
       
-      console.log('✅ Found available services:', availableServices.length);
+      console.log('✅ Found available services for branch:', availableServices.length);
+      console.log('📋 Available services:', availableServices);
       return availableServices;
     } catch (error) {
       console.error('❌ Error fetching available services:', error);
       throw new Error('Failed to fetch available services');
+    }
+  }
+
+  // Get stylists who can perform a specific service at a specific branch
+  async getStylistsByServiceAndBranch(serviceId: string, branchId: string): Promise<Stylist[]> {
+    try {
+      console.log('🔄 Fetching stylists for service:', serviceId, 'at branch:', branchId);
+      console.log('🔍 Service ID details:', {
+        serviceId,
+        serviceIdType: typeof serviceId,
+        serviceIdLength: serviceId.length,
+        serviceIdTrimmed: serviceId.trim()
+      });
+      
+      // Query users collection for stylists at this branch who can perform this service
+      const usersRef = collection(db, COLLECTIONS.USERS);
+      const q = query(
+        usersRef,
+        where('branchId', '==', branchId),
+        where('isActive', '==', true),
+        where('roles', 'array-contains', 'stylist')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const availableStylists: Stylist[] = [];
+      
+      querySnapshot.forEach(doc => {
+        const data = doc.data();
+        
+        console.log('🔍 Processing stylist data:', {
+          id: doc.id,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          service_id: data.service_id,
+          service_id_type: typeof data.service_id,
+          isArray: Array.isArray(data.service_id)
+        });
+        
+        // Normalize service_id to array format
+        const serviceIds = MobileAppointmentService.normalizeServiceIds(data.service_id);
+        
+        if (serviceIds.length === 0) {
+          console.log('⚠️ Skipping stylist due to empty service_id:', `${data.firstName} ${data.lastName}`);
+          return; // Skip this stylist
+        }
+        
+        console.log('✅ Normalized service IDs for', `${data.firstName} ${data.lastName}:`, serviceIds);
+        
+        // Check if this stylist can perform the selected service
+        // Create a more robust matching function
+        const canPerformService = (stylistServiceIds: string[], requestedServiceId: string): boolean => {
+          if (stylistServiceIds.length === 0) return false;
+          
+          // Direct match
+          if (stylistServiceIds.includes(requestedServiceId)) {
+            return true;
+          }
+          
+          // Try different matching strategies
+          const normalizedRequested = requestedServiceId.toLowerCase().trim();
+          
+          for (const stylistServiceId of stylistServiceIds) {
+            const normalizedStylist = stylistServiceId.toLowerCase().trim();
+            
+            // Direct normalized match
+            if (normalizedStylist === normalizedRequested) {
+              return true;
+            }
+            
+            // Check if one contains the other (for cases like "service_facial" vs "facial")
+            if (normalizedStylist.includes(normalizedRequested) || normalizedRequested.includes(normalizedStylist)) {
+              return true;
+            }
+            
+            // Check for common service type patterns
+            const requestedType = normalizedRequested.replace(/^service_/, '').replace(/^service/, '');
+            const stylistType = normalizedStylist.replace(/^service_/, '').replace(/^service/, '');
+            
+            if (requestedType === stylistType) {
+              return true;
+            }
+          }
+          
+          return false;
+        };
+        
+        const canPerform = canPerformService(serviceIds, serviceId);
+        
+        console.log('🔍 Checking if stylist can perform service:', {
+          stylistName: `${data.firstName} ${data.lastName}`,
+          serviceIds: serviceIds,
+          requestedServiceId: serviceId,
+          canPerform: canPerform,
+          directMatch: serviceIds.includes(serviceId)
+        });
+        
+        if (canPerform) {
+          console.log('✅ Adding stylist to available list:', `${data.firstName} ${data.lastName}`);
+          availableStylists.push({
+            id: doc.id,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            name: `${data.firstName} ${data.lastName}`,
+            specialties: serviceIds,
+            serviceIds: serviceIds,
+            phone: data.phone || '',
+            email: data.email || '',
+            rating: 4.5, // Default rating
+            isAvailable: true,
+            branchId: branchId
+          });
+        } else {
+          console.log('❌ Stylist cannot perform this service:', `${data.firstName} ${data.lastName}`);
+        }
+      });
+      
+      console.log('✅ Found stylists for service:', availableStylists.length);
+      console.log('📋 Available stylists:', availableStylists);
+      
+      // Additional debugging: Log all service IDs found in the database
+      console.log('🔍 DEBUGGING: All service IDs found in database:');
+      let arrayCount = 0;
+      let stringCount = 0;
+      let invalidCount = 0;
+      
+      querySnapshot.forEach(doc => {
+        const data = doc.data();
+        console.log('  - Stylist:', `${data.firstName} ${data.lastName}`, 'Service IDs:', data.service_id, 'Type:', typeof data.service_id, 'IsArray:', Array.isArray(data.service_id));
+        
+        if (Array.isArray(data.service_id)) {
+          arrayCount++;
+        } else if (typeof data.service_id === 'string') {
+          stringCount++;
+        } else {
+          invalidCount++;
+        }
+      });
+      
+      console.log('📊 Data Structure Summary:');
+      console.log(`  - Array format: ${arrayCount} stylists`);
+      console.log(`  - String format: ${stringCount} stylists (legacy)`);
+      console.log(`  - Invalid format: ${invalidCount} stylists`);
+      console.log(`  - Total stylists: ${querySnapshot.size}`);
+      
+      return availableStylists;
+    } catch (error) {
+      console.error('❌ Error fetching stylists for service:', error);
+      console.error('❌ Error details:', {
+        serviceId,
+        branchId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      throw new Error(`Failed to fetch stylists for service: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -383,7 +585,7 @@ class MobileAppointmentService {
   }
 
   // Create appointment
-  async createAppointment(appointmentData: AppointmentData): Promise<string> {
+  async createAppointment(appointmentData: any): Promise<string> {
     try {
       console.log('🔄 Creating appointment:', appointmentData);
       
@@ -397,8 +599,7 @@ class MobileAppointmentService {
       const appointment = removeUndefinedFields({
         ...appointmentData,
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        status: appointmentData.status || 'confirmed'
+        updatedAt: serverTimestamp()
       });
       
       const appointmentsRef = collection(db, COLLECTIONS.APPOINTMENTS);

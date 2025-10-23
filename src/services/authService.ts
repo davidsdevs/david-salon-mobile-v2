@@ -67,16 +67,11 @@ class AuthService {
 
       // Create user document in Firestore
       const firestoreUser: Omit<FirestoreUser, 'id' | 'createdAt' | 'updatedAt'> = {
-        uid: firebaseUser.uid,
         email: userData.email,
         firstName: userData.firstName,
         lastName: userData.lastName,
-        middleName: '',
         phone: userData.phone || '',
-        address: '',
         userType: userData.userType,
-        roles: [userData.userType],
-        branchId: null,
         isActive: true,
         emailVerified: false,
       };
@@ -277,47 +272,36 @@ class AuthService {
   }
 
   private convertFirestoreUserToAPI(user: FirestoreUser): User {
-    const apiUser: User = {
+    return {
       id: user.id,
-      uid: user.uid || user.id,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
       phone: user.phone || '',
       profileImage: user.profileImage,
       userType: user.userType,
-      roles: user.roles || [user.userType],
       isActive: user.isActive,
       createdAt: user.createdAt.toDate().toISOString(),
       updatedAt: user.updatedAt.toDate().toISOString(),
     };
-    
-    if (user.middleName) apiUser.middleName = user.middleName;
-    if (user.address) apiUser.address = user.address;
-    if (user.branchId !== null && user.branchId !== undefined) apiUser.branchId = user.branchId;
-    
-    return apiUser;
   }
 
   private convertFirestoreClientToAPI(client: FirestoreClient): Client {
-    const apiClient: Client = {
+    return {
       ...this.convertFirestoreUserToAPI(client),
       userType: 'client',
+      membershipLevel: client.membershipLevel,
+      memberSince: client.memberSince.toDate().toISOString(),
+      totalVisits: client.totalVisits,
+      totalSpent: client.totalSpent,
+      loyaltyPoints: client.loyaltyPoints,
       preferredStylist: client.preferredStylistId || '',
       emergencyContact: client.emergencyContact,
     };
-    
-    if (client.membershipLevel) apiClient.membershipLevel = client.membershipLevel;
-    if (client.memberSince) apiClient.memberSince = client.memberSince.toDate().toISOString();
-    if (client.totalVisits !== undefined) apiClient.totalVisits = client.totalVisits;
-    if (client.totalSpent !== undefined) apiClient.totalSpent = client.totalSpent;
-    if (client.loyaltyPoints !== undefined) apiClient.loyaltyPoints = client.loyaltyPoints;
-    
-    return apiClient;
   }
 
   private convertFirestoreStylistToAPI(stylist: FirestoreStylist): Stylist {
-    const apiStylist: Stylist = {
+    return {
       ...this.convertFirestoreUserToAPI(stylist),
       userType: 'stylist',
       employeeId: stylist.employeeId,
@@ -329,12 +313,8 @@ class AuthService {
       isAvailable: stylist.isAvailable,
       workingHours: stylist.workingHours,
       services: stylist.services,
+      portfolio: stylist.portfolio,
     };
-    
-    if (stylist.branchId) apiStylist.branchId = stylist.branchId;
-    if (stylist.portfolio) apiStylist.portfolio = stylist.portfolio;
-    
-    return apiStylist;
   }
 
   private handleAuthError(error: any): Error {

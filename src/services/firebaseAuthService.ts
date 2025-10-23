@@ -34,7 +34,6 @@ export class FirebaseAuthService {
    */
   static async signIn(credentials: LoginRequest): Promise<AuthResult> {
     try {
-      // Authenticate with Firebase
       const userCredential: UserCredential = await signInWithEmailAndPassword(
         auth,
         credentials.email,
@@ -42,51 +41,44 @@ export class FirebaseAuthService {
       );
 
       const firebaseUser = userCredential.user;
-      console.log('✅ Firebase Auth successful for:', firebaseUser.email);
       
-      // Get user profile from Firestore by email (most reliable)
-      let userProfile = await this.getUserProfileByEmail(credentials.email);
-      
-      // Fallback: try by UID if email search fails
-      if (!userProfile) {
-        console.log('⚠️ User not found by email, trying UID...');
-        userProfile = await this.getUserProfile(firebaseUser.uid);
-      }
+      // Get user profile from Firestore
+      const userProfile = await this.getUserProfile(firebaseUser.uid);
       
       if (!userProfile) {
-        throw new Error('User profile not found in database. Please contact support.');
+        throw new Error('User profile not found. Please contact support.');
       }
       
-      console.log('✅ User profile loaded:', {
-        email: userProfile.email,
-        userType: userProfile.userType,
-        roles: userProfile.roles
-      });
+      // Check if user is allowed to login (only client and stylist)
+      // First check roles array, then fallback to userType
+      const userRoles = userProfile.roles;
+      const userType = userProfile.userType;
       
-      // Extract userType from roles array if not set
-      if (!userProfile.userType && userProfile.roles && userProfile.roles.length > 0) {
-        userProfile.userType = userProfile.roles[0] as any;
-        console.log('📝 Set userType from roles:', userProfile.userType);
+      let hasValidRole = false;
+      
+      if (userRoles && Array.isArray(userRoles)) {
+        // Check if user has client or stylist in roles array
+        hasValidRole = userRoles.some(role => ['client', 'stylist'].includes(role));
+        console.log('🔄 Checking roles array:', { roles: userRoles, hasValidRole });
+      } else {
+        // Fallback to userType check
+        hasValidRole = ['client', 'stylist'].includes(userType);
+        console.log('🔄 Checking userType (fallback):', { userType, hasValidRole });
       }
       
-      // Validate user can access mobile app
-      const allowedRoles = ['client', 'stylist'];
-      const isAllowed = 
-        (userProfile.userType && allowedRoles.includes(userProfile.userType)) ||
-        (userProfile.roles && userProfile.roles.some(r => allowedRoles.includes(r)));
-      
-      if (!isAllowed) {
-        console.log('❌ Access denied for user type:', userProfile.userType);
-        throw new Error('Access denied. Only clients and stylists can use this app.');
+      if (!hasValidRole) {
+        console.log('🔄 Login rejected - No valid role found:', { userType, roles: userRoles });
+        throw new Error('Access denied. Only clients and stylists can use the mobile app.');
       }
-      
-      console.log('✅ Login successful as:', userProfile.userType);
 
       // Get Firebase ID token
       const token = await firebaseUser.getIdToken();
+      
+      // For mobile, we'll use the Firebase ID token as both token and refresh token
+      // Firebase handles token refresh automatically
       const refreshToken = token;
 
-      // Store user data if remember me is checked
+      // Store user data in AsyncStorage if remember me is checked
       if (credentials.rememberMe) {
         await this.storeUserData(userProfile, token, refreshToken);
       }
@@ -97,7 +89,7 @@ export class FirebaseAuthService {
         refreshToken
       };
     } catch (error: any) {
-      console.error('❌ Sign in error:', error.message);
+      console.error('Firebase sign in error:', error);
       throw new Error(this.getErrorMessage(error));
     }
   }
@@ -124,17 +116,12 @@ export class FirebaseAuthService {
       // Create user profile in Firestore
       const userProfile: User = {
         id: firebaseUser.uid,
-        uid: firebaseUser.uid,
         email: userData.email,
         firstName: userData.firstName,
         lastName: userData.lastName,
-        middleName: '',
         phone: userData.phone || '',
-        address: '',
         profileImage: undefined,
         userType: userData.userType,
-        roles: [userData.userType],
-        branchId: null,
         isActive: true,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -161,12 +148,9 @@ export class FirebaseAuthService {
           updatedAt: serverTimestamp()
         });
       } else if (userData.userType === 'stylist') {
-        // Remove branchId from userProfile to avoid null assignment issue
-        const { branchId, ...userProfileWithoutBranch } = userProfile;
-        
-        const stylistData = {
-          ...userProfileWithoutBranch,
-          userType: 'stylist' as const,
+        const stylistData: Stylist = {
+          ...userProfile,
+          userType: 'stylist',
           employeeId: `EMP${Date.now()}`,
           specialization: [],
           experience: 0,
@@ -240,100 +224,43 @@ export class FirebaseAuthService {
   }
 
   /**
-   * Get user profile by email from Firestore
-   */
-  static async getUserProfileByEmail(email: string): Promise<User | null> {
-    try {
-      const collections = [COLLECTIONS.USERS, COLLECTIONS.CLIENTS, COLLECTIONS.STYLISTS];
-      
-      for (const collectionName of collections) {
-        const q = query(collection(db, collectionName), where('email', '==', email));
-        const snapshot = await getDocs(q);
-        
-        if (!snapshot.empty && snapshot.docs[0]) {
-          const userDoc = snapshot.docs[0];
-          console.log(`✅ Found user in ${collectionName}:`, userDoc.id);
-          return this.convertFirestoreDataToUser(userDoc.data(), userDoc.id);
-        }
-      }
-
-      console.log('❌ User not found with email:', email);
-      return null;
-    } catch (error: any) {
-      console.error('❌ Error searching by email:', error);
-      return null;
-    }
-  }
-
-  /**
    * Get user profile from Firestore
-   * Searches by document ID first, then by uid field if not found
    */
   static async getUserProfile(userId: string): Promise<User | null> {
     try {
       console.log('🔄 getUserProfile: Starting for userId:', userId);
-      console.log('🔄 getUserProfile: Checking collection:', COLLECTIONS.USERS);
       
-      // Strategy 1: Try to get by document ID from users collection
+      // First try to get from users collection
       const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, userId));
-      console.log('🔄 getUserProfile: User doc exists (by ID):', userDoc.exists());
+      console.log('🔄 getUserProfile: User doc exists:', userDoc.exists());
       
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        console.log('🔄 getUserProfile: Found user by document ID:', { 
-          id: userDoc.id,
-          uid: userData['uid'],
-          roles: userData['roles'],
+        console.log('🔄 getUserProfile: Raw user data from Firestore:', { 
+          role: userData['role'], 
           userType: userData['userType'],
-          email: userData['email'],
-          firstName: userData['firstName']
+          email: userData['email'] 
         });
         return this.convertFirestoreDataToUser(userData, userDoc.id);
       }
 
-      // Strategy 2: Search by uid field in users collection
-      console.log('🔄 getUserProfile: Searching by uid field in users collection...');
-      const usersQuery = query(
-        collection(db, COLLECTIONS.USERS),
-        where('uid', '==', userId)
-      );
-      const usersSnapshot = await getDocs(usersQuery);
-      
-      if (!usersSnapshot.empty && usersSnapshot.docs[0]) {
-        const foundUserDoc = usersSnapshot.docs[0];
-        const userData = foundUserDoc.data();
-        console.log('🔄 getUserProfile: Found user by uid field:', {
-          docId: foundUserDoc.id,
-          uid: userData['uid'],
-          roles: userData['roles'],
-          userType: userData['userType'],
-          email: userData['email']
-        });
-        return this.convertFirestoreDataToUser(userData, foundUserDoc.id);
-      }
-
-      // Strategy 3: Try clients collection
-      console.log('🔄 getUserProfile: Not found in users, trying clients...');
+      // If not found in users, try clients collection
       const clientDoc = await getDoc(doc(db, COLLECTIONS.CLIENTS, userId));
-      console.log('🔄 getUserProfile: Client doc exists:', clientDoc.exists());
       if (clientDoc.exists()) {
         const clientData = clientDoc.data();
         return this.convertFirestoreDataToUser(clientData, clientDoc.id) as Client;
       }
 
-      // Strategy 4: Try stylists collection
-      console.log('🔄 getUserProfile: Not found in clients, trying stylists...');
+      // If not found in clients, try stylists collection
       const stylistDoc = await getDoc(doc(db, COLLECTIONS.STYLISTS, userId));
-      console.log('🔄 getUserProfile: Stylist doc exists:', stylistDoc.exists());
       if (stylistDoc.exists()) {
         const stylistData = stylistDoc.data();
         return this.convertFirestoreDataToUser(stylistData, stylistDoc.id) as Stylist;
       }
 
-      console.log('❌ getUserProfile: User not found in any collection with any strategy');
       return null;
     } catch (error: any) {
-      console.error('❌ Error getting user profile:', error);
+      console.error('Error getting user profile:', error);
       throw new Error('Failed to get user profile');
     }
   }
@@ -342,12 +269,15 @@ export class FirebaseAuthService {
    * Convert Firestore data to User object, handling Timestamps
    */
   private static convertFirestoreDataToUser(data: any, id: string): User {
-    // Convert Timestamps to ISO strings
+    const convertedData = { ...data };
+    
+    // Convert all Timestamp fields to ISO strings
     const convertTimestamps = (obj: any): any => {
       if (obj === null || obj === undefined) return obj;
       
       if (typeof obj === 'object') {
-        if (obj.seconds !== undefined) {
+        if (obj.type === 'firestore/timestamp/1.0' || obj.seconds !== undefined) {
+          // This is a Firestore Timestamp
           return obj.toDate?.()?.toISOString() || new Date().toISOString();
         }
         
@@ -365,26 +295,48 @@ export class FirebaseAuthService {
       return obj;
     };
     
-    const converted = convertTimestamps({ ...data });
+    const converted = convertTimestamps(convertedData);
     
-    // Extract userType from roles if not present
-    if (!converted.userType && converted.roles && Array.isArray(converted.roles) && converted.roles.length > 0) {
-      converted.userType = converted.roles[0];
+    // Map fields for compatibility with seed data structure
+    console.log('🔄 convertFirestoreDataToUser: Original data:', { 
+      role: converted.role, 
+      roles: converted.roles,
+      userType: converted.userType,
+      email: converted.email 
+    });
+    
+    // Handle roles array - if user has roles array, use it
+    if (converted.roles && Array.isArray(converted.roles)) {
+      console.log('🔄 User has roles array:', converted.roles);
+      // Keep the roles array as is
+    } else if (converted.role && !converted.userType) {
+      console.log('🔄 Mapping role to userType:', converted.role, '→', converted.role);
+      converted.userType = converted.role;
+    } else if (converted.role && converted.userType && converted.role !== converted.userType) {
+      // If both exist but are different, prioritize role field
+      console.log('🔄 Role and userType differ, prioritizing role:', converted.role, 'over', converted.userType);
+      converted.userType = converted.role;
     }
     
-    // Ensure roles array exists
-    if (!converted.roles || !Array.isArray(converted.roles)) {
-      converted.roles = converted.userType ? [converted.userType] : [];
-    }
+    // Note: We don't default invalid userTypes to client here
+    // The validation will happen in the login process instead
     
-    // Map legacy fields
+    // Map phoneNumber to phone if needed
     if (converted.phoneNumber && !converted.phone) {
       converted.phone = converted.phoneNumber;
     }
     
+    // Map firstName and lastName to name if needed
     if (converted.firstName && converted.lastName && !converted.name) {
       converted.name = `${converted.firstName} ${converted.lastName}`;
     }
+    
+    console.log('🔄 convertFirestoreDataToUser: Final data:', { 
+      role: converted.role, 
+      roles: converted.roles,
+      userType: converted.userType,
+      email: converted.email 
+    });
     
     return {
       id,

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   Platform,
   Dimensions,
 } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import useAuth from '../../hooks/useAuth';
@@ -30,15 +30,6 @@ interface Notification {
 export default function NotificationsScreen() {
   const { user } = useAuth();
   const navigation = useNavigation();
-  const scrollViewRef = useRef<ScrollView>(null);
-
-  // Scroll to top when screen is focused
-  useFocusEffect(
-    useCallback(() => {
-      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
-    }, [])
-  );
-
   const [notifications, setNotifications] = useState<Notification[]>([
     {
       id: 1,
@@ -211,7 +202,7 @@ export default function NotificationsScreen() {
   // For mobile, use ScreenWrapper with header
   return (
     <ScreenWrapper title="Notifications" showBackButton={true}>
-      <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Notifications Header */}
         <View style={styles.section}>
           <View style={styles.headerContainer}>
@@ -285,7 +276,7 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F5F5F5',
   },
   webContainer: {
     flex: 1,

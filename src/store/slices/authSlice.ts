@@ -2,6 +2,7 @@ import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { User, LoginRequest, LoginResponse, ApiResponse, RegisterRequest } from '../../types/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import FirebaseAuthService from '../../services/firebaseAuthService';
+import clearAllAppData from '../../utils/clearAllData';
 
 // Helper function to convert Firestore Timestamps to ISO strings
 const convertTimestampsInObject = (obj: any): any => {
@@ -34,6 +35,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  isWaitingForRoleSelection: boolean;
 }
 
 const initialState: AuthState = {
@@ -43,6 +45,7 @@ const initialState: AuthState = {
   isAuthenticated: false,
   isLoading: false,
   error: null,
+  isWaitingForRoleSelection: false,
 };
 
 // Async thunks
@@ -104,9 +107,18 @@ export const logoutUser = createAsyncThunk(
   'auth/logout',
   async (_, { rejectWithValue }) => {
     try {
+      console.log('🔄 Redux logout: Starting complete logout...');
+      
+      // Sign out from Firebase
       await FirebaseAuthService.signOut();
+      
+      // Clear all app data using utility function
+      await clearAllAppData();
+      
+      console.log('✅ Redux logout: Complete logout successful');
       return true;
     } catch (error) {
+      console.error('❌ Redux logout error:', error);
       return rejectWithValue('Logout failed');
     }
   }
@@ -162,8 +174,24 @@ export const loadStoredAuth = createAsyncThunk(
         
         if (userProfile) {
           // Check if user is allowed to login (only client and stylist)
-          if (!['client', 'stylist'].includes(userProfile.userType)) {
-            console.log('🔄 loadStoredAuth: Invalid user type, clearing auth:', userProfile.userType);
+          // First check roles array, then fallback to userType
+          const userRoles = userProfile.roles;
+          const userType = userProfile.userType;
+          
+          let hasValidRole = false;
+          
+          if (userRoles && Array.isArray(userRoles)) {
+            // Check if user has client or stylist in roles array
+            hasValidRole = userRoles.some(role => ['client', 'stylist'].includes(role));
+            console.log('🔄 loadStoredAuth: Checking roles array:', { roles: userRoles, hasValidRole });
+          } else {
+            // Fallback to userType check
+            hasValidRole = ['client', 'stylist'].includes(userType);
+            console.log('🔄 loadStoredAuth: Checking userType (fallback):', { userType, hasValidRole });
+          }
+          
+          if (!hasValidRole) {
+            console.log('🔄 loadStoredAuth: Invalid user type, clearing auth:', { userType, roles: userRoles });
             // Clear invalid user data
             await AsyncStorage.multiRemove(['authToken', 'refreshToken', 'user']);
             return null;
@@ -201,8 +229,24 @@ export const loadStoredAuth = createAsyncThunk(
         });
         
         // Check if stored user is allowed to login (only client and stylist)
-        if (!['client', 'stylist'].includes(user.userType)) {
-          console.log('🔄 loadStoredAuth: Invalid stored user type, clearing auth:', user.userType);
+        // First check roles array, then fallback to userType
+        const userRoles = user.roles;
+        const userType = user.userType;
+        
+        let hasValidRole = false;
+        
+        if (userRoles && Array.isArray(userRoles)) {
+          // Check if user has client or stylist in roles array
+          hasValidRole = userRoles.some(role => ['client', 'stylist'].includes(role));
+          console.log('🔄 loadStoredAuth: Checking stored roles array:', { roles: userRoles, hasValidRole });
+        } else {
+          // Fallback to userType check
+          hasValidRole = ['client', 'stylist'].includes(userType);
+          console.log('🔄 loadStoredAuth: Checking stored userType (fallback):', { userType, hasValidRole });
+        }
+        
+        if (!hasValidRole) {
+          console.log('🔄 loadStoredAuth: Invalid stored user type, clearing auth:', { userType, roles: userRoles });
           await AsyncStorage.multiRemove(['authToken', 'refreshToken', 'user']);
           return null;
         }
@@ -236,6 +280,21 @@ const authSlice = createSlice({
       if (state.user) {
         state.user = { ...state.user, ...action.payload };
       }
+    },
+    setSelectedRole: (state, action: PayloadAction<'client' | 'stylist'>) => {
+      if (state.user) {
+        // Update the user's current role selection
+        state.user = { 
+          ...state.user, 
+          selectedRole: action.payload,
+          userType: action.payload // Also update userType for backward compatibility
+        };
+        // Clear the waiting state since role has been selected
+        state.isWaitingForRoleSelection = false;
+      }
+    },
+    setWaitingForRoleSelection: (state, action: PayloadAction<boolean>) => {
+      state.isWaitingForRoleSelection = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -304,7 +363,7 @@ const authSlice = createSlice({
       .addCase(logoutUser.rejected, (state, action) => {
         console.log('❌ Redux: logoutUser.rejected - logout failed:', action.payload);
         state.isLoading = false;
-        state.error = (action.payload as string) || 'Logout failed';
+        state.error = action.payload || 'Logout failed';
         // Don't change isAuthenticated on logout failure
       })
       // Refresh token
@@ -335,5 +394,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearError, updateUser } = authSlice.actions;
+export const { clearError, updateUser, setSelectedRole, setWaitingForRoleSelection } = authSlice.actions;
 export default authSlice.reducer;

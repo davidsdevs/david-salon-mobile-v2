@@ -12,36 +12,92 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db, COLLECTIONS } from '../../config/firebase';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import ResponsiveLayout from '../../components/ResponsiveLayout';
 import { APP_CONFIG, FONTS } from '../../constants';
-import MobileAppointmentService, { Branch } from '../../services/mobileAppointmentService';
+import { useBooking } from '../../context/BookingContext';
 
 const { width } = Dimensions.get('window');
 
 export default function BranchSelectionScreen() {
   const navigation = useNavigation();
-  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { state, setBranch, setLoading, setError } = useBooking();
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(state.bookingData.branchId || null);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [loading, setLoadingLocal] = useState(true);
+  const [error, setErrorLocal] = useState<string | null>(null);
 
   useEffect(() => {
     loadBranches();
   }, []);
 
+  const formatTime = (time: string) => {
+    if (!time || typeof time !== 'string') return 'N/A';
+    
+    try {
+      const [hourStr, minuteStr] = time.split(':');
+      const hour = parseInt(hourStr || '0', 10);
+      const minute = parseInt(minuteStr || '0', 10);
+      const suffix = hour >= 12 ? 'PM' : 'AM';
+      const formattedHour = hour % 12 || 12;
+      return `${formattedHour}:${minute.toString().padStart(2, '0')} ${suffix}`;
+    } catch (error) {
+      console.error('Error formatting time:', error);
+      return 'N/A';
+    }
+  };
+
+  const getReadableHours = (operatingHours: any) => {
+    if (!operatingHours) return 'No hours available';
+    const days = ['monday','tuesday','wednesday','thursday','friday','saturday'];
+    const openDays = days.filter(day => operatingHours[day]?.['isOpen']);
+    if (openDays.length === 0) return 'Closed';
+    const sampleDay = operatingHours[openDays[0] as string];
+    return `Mon–Sat: ${formatTime(sampleDay['open'])} – ${formatTime(sampleDay['close'])}`;
+  };
+
   const loadBranches = async () => {
     try {
       setLoading(true);
+      setLoadingLocal(true);
       setError(null);
-      const branchesData = await MobileAppointmentService.getBranches();
-      setBranches(branchesData);
+      setErrorLocal(null);
+
+      // Query only active branches
+      const branchesRef = collection(db, COLLECTIONS.BRANCHES);
+      const q = query(branchesRef, where('isActive', '==', true));
+      const querySnapshot = await getDocs(q);
+      
+      const activeBranches: any[] = [];
+
+      querySnapshot.forEach(doc => {
+        const data = doc.data();
+        activeBranches.push({
+          id: doc.id,
+          branchId: doc.id,
+          name: data['name'],
+          address: data['address'],
+          city: data['city'],
+          phone: data['contactNumber'],
+          email: data['email'],
+          hours: getReadableHours(data['operatingHours']),
+          operatingHours: data['operatingHours'],
+          isActive: data['isActive'],
+        });
+      });
+
+      setBranches(activeBranches);
     } catch (err) {
       console.error('Error loading branches:', err);
-      setError('Failed to load branches. Please try again.');
-      Alert.alert('Error', 'Failed to load branches. Please try again.');
+      const errorMsg = 'Failed to load branches. Please try again.';
+      setError(errorMsg);
+      setErrorLocal(errorMsg);
+      Alert.alert('Error', errorMsg);
     } finally {
       setLoading(false);
+      setLoadingLocal(false);
     }
   };
 
@@ -51,287 +107,189 @@ export default function BranchSelectionScreen() {
 
   const handleNext = () => {
     if (selectedBranch) {
-      (navigation as any).navigate('DateTimeSelection', { branchId: selectedBranch });
+      const selectedBranchData = branches.find(branch => branch.branchId === selectedBranch);
+      if (selectedBranchData) {
+        // Save branch data to booking context
+        setBranch({
+          branchId: selectedBranchData.branchId,
+          branchName: selectedBranchData.name,
+          branchAddress: selectedBranchData.address,
+          branchCity: selectedBranchData.city,
+        });
+        
+        // Navigate to next step
+        (navigation as any).navigate('DateTimeSelection');
+      }
+    } else {
+      Alert.alert('Selection Required', 'Please select a branch to continue.');
     }
   };
 
-  // For web, render with ResponsiveLayout to include sidebar
+  // ✅ Web layout
   if (Platform.OS === 'web') {
     return (
       <ResponsiveLayout currentScreen="Booking">
         <View style={styles.webContainer}>
-        {/* Progress Indicator */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressStep}>
-            <View style={[styles.stepCircle, styles.activeStep]}>
-              <Text style={styles.stepNumber}>1</Text>
-            </View>
-            <Text style={styles.stepLabel}>Select Branch</Text>
-          </View>
-          <View style={styles.progressLine} />
-          <View style={styles.progressStep}>
-            <View style={styles.stepCircle}>
-              <Text style={styles.stepNumber}>2</Text>
-            </View>
-            <Text style={styles.stepLabel}>Date & Time</Text>
-          </View>
-          <View style={styles.progressLine} />
-          <View style={styles.progressStep}>
-            <View style={styles.stepCircle}>
-              <Text style={styles.stepNumber}>3</Text>
-            </View>
-            <Text style={styles.stepLabel}>Services & Stylist</Text>
-          </View>
-          <View style={styles.progressLine} />
-          <View style={styles.progressStep}>
-            <View style={styles.stepCircle}>
-              <Text style={styles.stepNumber}>4</Text>
-            </View>
-            <Text style={styles.stepLabel}>Summary</Text>
-          </View>
-        </View>
+          {/* Progress Indicator */}
+          <ProgressIndicator />
 
-        {/* Branch Selection */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Select Branch</Text>
-          <Text style={styles.sectionSubtitle}>Choose your preferred salon location</Text>
-          
-          <View style={styles.branchesContainer}>
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={APP_CONFIG.primaryColor} />
-                <Text style={styles.loadingText}>Loading branches...</Text>
-              </View>
-            ) : error ? (
-              <View style={styles.errorContainer}>
-                <Ionicons name="alert-circle" size={48} color="#EF4444" />
-                <Text style={styles.errorText}>{error}</Text>
-                <TouchableOpacity style={styles.retryButton} onPress={loadBranches}>
-                  <Text style={styles.retryButtonText}>Retry</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              branches.map((branch) => (
-              <TouchableOpacity
-                key={branch.id}
-                style={[
-                  styles.branchCard,
-                  selectedBranch === branch.id && styles.selectedBranchCard,
-                  !branch.isActive && styles.unavailableBranchCard
-                ]}
-                  onPress={() => branch.isActive && handleBranchSelect(branch.id)}
-                  disabled={!branch.isActive}
-              >
-                <View style={styles.branchHeader}>
-                  <View style={styles.branchInfo}>
-                    <Text style={[
-                      styles.branchName,
-                      !branch.isActive && styles.unavailableText
-                    ]}>
-                      {branch.name}
-                    </Text>
-                    <Text style={[
-                      styles.branchAddress,
-                      !branch.isActive && styles.unavailableText
-                    ]}>
-                      {branch.address}
-                    </Text>
-                  </View>
-                  <View style={styles.branchStatus}>
-                    {selectedBranch === branch.id && (
-                      <Ionicons name="checkmark-circle" size={24} color={APP_CONFIG.primaryColor} />
-                    )}
-                    {!branch.isActive && (
-                      <Text style={styles.unavailableLabel}>Unavailable</Text>
-                    )}
-                  </View>
-                </View>
-                
-                <View style={styles.branchDetails}>
-                  <View style={styles.branchDetailItem}>
-                    <Ionicons name="call" size={16} color="#666" />
-                    <Text style={styles.branchDetailText}>{branch.phone}</Text>
-                  </View>
-                  <View style={styles.branchDetailItem}>
-                    <Ionicons name="time" size={16} color="#666" />
-                    <Text style={styles.branchDetailText}>{branch.hours}</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-              ))
-            )}
-          </View>
-        </View>
+          {/* Branch Selection */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Select Branch</Text>
+            <Text style={styles.sectionSubtitle}>Choose your preferred salon location</Text>
 
-        {/* Navigation Buttons */}
-        <View style={styles.navigationContainer}>
-          <TouchableOpacity 
-            style={styles.previousButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={20} color="#666" />
-            <Text style={styles.previousButtonText}>Previous</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[
-              styles.nextButton,
-              !selectedBranch && styles.disabledButton
-            ]}
-            onPress={handleNext}
+            <View style={styles.branchesContainer}>
+              {(loading || state.isLoading) ? (
+                <LoadingState />
+              ) : (error || state.error) ? (
+                <ErrorState error={error || state.error} onRetry={loadBranches} />
+              ) : (
+                branches.map(branch => (
+                  <BranchCard
+                    key={branch.id}
+                    branch={branch}
+                    selected={selectedBranch === branch.id}
+                    onSelect={handleBranchSelect}
+                  />
+                ))
+              )}
+            </View>
+          </View>
+
+          {/* Navigation Buttons */}
+          <NavigationButtons
+            onBack={() => navigation.goBack()}
+            onNext={handleNext}
             disabled={!selectedBranch}
-          >
-            <Text style={styles.nextButtonText}>Next</Text>
-            <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
+          />
         </View>
       </ResponsiveLayout>
     );
   }
 
-  // For mobile, use ScreenWrapper with header
+  // ✅ Mobile layout
   return (
     <ScreenWrapper title="Book Appointment">
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Progress Indicator */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressStep}>
-            <View style={[styles.stepCircle, styles.activeStep]}>
-              <Text style={styles.stepNumber}>1</Text>
-            </View>
-            <Text style={styles.stepLabel}>Select Branch</Text>
-          </View>
-          <View style={styles.progressLine} />
-          <View style={styles.progressStep}>
-            <View style={styles.stepCircle}>
-              <Text style={styles.stepNumber}>2</Text>
-            </View>
-            <Text style={styles.stepLabel}>Date & Time</Text>
-          </View>
-          <View style={styles.progressLine} />
-          <View style={styles.progressStep}>
-            <View style={styles.stepCircle}>
-              <Text style={styles.stepNumber}>3</Text>
-            </View>
-            <Text style={styles.stepLabel}>Services & Stylist</Text>
-          </View>
-          <View style={styles.progressLine} />
-          <View style={styles.progressStep}>
-            <View style={styles.stepCircle}>
-              <Text style={styles.stepNumber}>4</Text>
-            </View>
-            <Text style={styles.stepLabel}>Summary</Text>
-          </View>
-        </View>
+        <ProgressIndicator />
 
-        {/* Branch Selection */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Select Branch</Text>
           <Text style={styles.sectionSubtitle}>Choose your preferred salon location</Text>
-          
+
           <View style={styles.branchesContainer}>
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={APP_CONFIG.primaryColor} />
-                <Text style={styles.loadingText}>Loading branches...</Text>
-              </View>
-            ) : error ? (
-              <View style={styles.errorContainer}>
-                <Ionicons name="alert-circle" size={48} color="#EF4444" />
-                <Text style={styles.errorText}>{error}</Text>
-                <TouchableOpacity style={styles.retryButton} onPress={loadBranches}>
-                  <Text style={styles.retryButtonText}>Retry</Text>
-                </TouchableOpacity>
-              </View>
+            {(loading || state.isLoading) ? (
+              <LoadingState />
+            ) : (error || state.error) ? (
+              <ErrorState error={error || state.error} onRetry={loadBranches} />
             ) : (
-              branches.map((branch) => (
-              <TouchableOpacity
-                key={branch.id}
-                style={[
-                  styles.branchCard,
-                  selectedBranch === branch.id && styles.selectedBranchCard,
-                  !branch.isActive && styles.unavailableBranchCard
-                ]}
-                  onPress={() => branch.isActive && handleBranchSelect(branch.id)}
-                  disabled={!branch.isActive}
-              >
-                <View style={styles.branchHeader}>
-                  <View style={styles.branchInfo}>
-                    <Text style={[
-                      styles.branchName,
-                      !branch.isActive && styles.unavailableText
-                    ]}>
-                      {branch.name}
-                    </Text>
-                    <Text style={[
-                      styles.branchAddress,
-                      !branch.isActive && styles.unavailableText
-                    ]}>
-                      {branch.address}
-                    </Text>
-                  </View>
-                  <View style={styles.branchStatus}>
-                    {selectedBranch === branch.id && (
-                      <Ionicons name="checkmark-circle" size={24} color={APP_CONFIG.primaryColor} />
-                    )}
-                    {!branch.isActive && (
-                      <Text style={styles.unavailableLabel}>Unavailable</Text>
-                    )}
-                  </View>
-                </View>
-                
-                <View style={styles.branchDetails}>
-                  <View style={styles.branchDetailItem}>
-                    <Ionicons name="call" size={16} color="#666" />
-                    <Text style={styles.branchDetailText}>{branch.phone}</Text>
-                  </View>
-                  <View style={styles.branchDetailItem}>
-                    <Ionicons name="time" size={16} color="#666" />
-                    <Text style={styles.branchDetailText}>{branch.hours}</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
+              branches.map(branch => (
+                <BranchCard
+                  key={branch.id}
+                  branch={branch}
+                  selected={selectedBranch === branch.id}
+                  onSelect={handleBranchSelect}
+                />
               ))
             )}
           </View>
         </View>
 
-        {/* Navigation Buttons */}
-        <View style={styles.navigationContainer}>
-          <TouchableOpacity 
-            style={styles.previousButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={20} color="#666" />
-            <Text style={styles.previousButtonText}>Previous</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[
-              styles.nextButton,
-              !selectedBranch && styles.disabledButton
-            ]}
-            onPress={handleNext}
-            disabled={!selectedBranch}
-          >
-            <Text style={styles.nextButtonText}>Next</Text>
-            <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
+        <NavigationButtons
+          onBack={() => navigation.goBack()}
+          onNext={handleNext}
+          disabled={!selectedBranch}
+        />
       </ScrollView>
     </ScreenWrapper>
   );
 }
 
+// ✅ Subcomponents
+const ProgressIndicator = () => (
+  <View style={styles.progressContainer}>
+    {['Select Branch', 'Date & Time', 'Services & Stylist', 'Summary'].map((label, index) => (
+      <React.Fragment key={index}>
+        <View style={styles.progressStep}>
+          <View style={[styles.stepCircle, index === 0 && styles.activeStep]}>
+            <Text style={styles.stepNumber}>{index + 1}</Text>
+          </View>
+          <Text style={styles.stepLabel}>{label}</Text>
+        </View>
+        {index < 3 && <View style={styles.progressLine} />}
+      </React.Fragment>
+    ))}
+  </View>
+);
+
+const BranchCard = ({ branch, selected, onSelect }: any) => (
+  <TouchableOpacity
+    style={[styles.branchCard, selected && styles.selectedBranchCard]}
+    onPress={() => onSelect(branch.id)}
+  >
+    <View style={styles.branchHeader}>
+      <View style={styles.branchInfo}>
+        <Text style={styles.branchName}>{branch.name}</Text>
+        <Text style={styles.branchAddress}>{branch.address}</Text>
+      </View>
+      {selected && <Ionicons name="checkmark-circle" size={24} color={APP_CONFIG.primaryColor} />}
+    </View>
+    <View style={styles.branchDetails}>
+      <View style={styles.branchDetailItem}>
+        <Ionicons name="call" size={16} color="#666" />
+        <Text style={styles.branchDetailText}>{branch.phone}</Text>
+      </View>
+      <View style={styles.branchDetailItem}>
+        <Ionicons name="time" size={16} color="#666" />
+        <Text style={styles.branchDetailText}>{branch.hours}</Text>
+      </View>
+    </View>
+  </TouchableOpacity>
+);
+
+const LoadingState = () => (
+  <View style={styles.loadingContainer}>
+    <ActivityIndicator size="large" color={APP_CONFIG.primaryColor} />
+    <Text style={styles.loadingText}>Loading branches...</Text>
+  </View>
+);
+
+const ErrorState = ({ error, onRetry }: any) => (
+  <View style={styles.errorContainer}>
+    <Ionicons name="alert-circle" size={48} color="#EF4444" />
+    <Text style={styles.errorText}>{error}</Text>
+    <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
+      <Text style={styles.retryButtonText}>Retry</Text>
+    </TouchableOpacity>
+  </View>
+);
+
+const NavigationButtons = ({ onBack, onNext, disabled }: any) => (
+  <View style={styles.navigationContainer}>
+    <TouchableOpacity style={styles.previousButton} onPress={onBack}>
+      <Ionicons name="arrow-back" size={20} color="#666" />
+      <Text style={styles.previousButtonText}>Previous</Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity
+      style={[styles.nextButton, disabled && styles.disabledButton]}
+      onPress={onNext}
+      disabled={disabled}
+    >
+      <Text style={styles.nextButtonText}>Next</Text>
+      <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+    </TouchableOpacity>
+  </View>
+);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F8F9FA',
   },
   webContainer: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8F9FA',
     paddingHorizontal: 24,
     paddingVertical: 24,
     minHeight: '100%',

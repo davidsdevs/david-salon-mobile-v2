@@ -115,14 +115,12 @@ export const updateUserProfile = createAsyncThunk<
       // Convert to API format
                 const user: User = {
                   id: userData.id,
-                  uid: userData.uid || userData.id,
                   email: userData.email,
                   firstName: userData.firstName,
                   lastName: userData.lastName,
                   phone: userData.phone || '',
                   profileImage: userData.profileImage,
                   userType: userData.userType,
-                  roles: userData.roles || [userData.userType],
                   isActive: userData.isActive,
                   createdAt: userData.createdAt.toDate().toISOString(),
                   updatedAt: userData.updatedAt.toDate().toISOString(),
@@ -175,14 +173,12 @@ export const initializeAuth = createAsyncThunk<
               if (userData) {
                 const user: User = {
                   id: userData.id,
-                  uid: userData.uid || userData.id,
                   email: userData.email,
                   firstName: userData.firstName,
                   lastName: userData.lastName,
                   phone: userData.phone || '',
                   profileImage: userData.profileImage,
                   userType: userData.userType,
-                  roles: userData.roles || [userData.userType],
                   isActive: userData.isActive,
                   createdAt: userData.createdAt.toDate().toISOString(),
                   updatedAt: userData.updatedAt.toDate().toISOString(),

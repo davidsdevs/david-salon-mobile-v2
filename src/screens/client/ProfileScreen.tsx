@@ -10,9 +10,11 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import { useAuth } from '../../hooks/redux';
-import { APP_CONFIG, FONTS, TYPOGRAPHY, SPACING, RADIUS } from '../../constants';
+import { APP_CONFIG, FONTS } from '../../constants';
+import clearAllAppData from '../../utils/clearAllData';
 
 export default function ProfileScreen() {
   const { user, logout, isLoading } = useAuth();
@@ -21,7 +23,7 @@ export default function ProfileScreen() {
   const handleLogout = () => {
     Alert.alert(
       "Logout",
-      "Are you sure you want to logout?",
+      "Are you sure you want to logout? This will clear all your data.",
       [
         {
           text: "Cancel",
@@ -32,12 +34,17 @@ export default function ProfileScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              console.log('🔄 Starting logout process...');
+              console.log('🔄 Starting complete logout process...');
+              
+              // Clear all app data using utility function
+              await clearAllAppData();
+              
+              // Perform Redux logout
               const result = await logout();
               console.log('🔄 Logout result:', result);
               
               if (result.type === 'auth/logout/fulfilled') {
-                console.log('✅ Logout successful, app will redirect automatically');
+                console.log('✅ Complete logout successful, all data cleared');
               } else if (result.type === 'auth/logout/rejected') {
                 console.log('❌ Logout failed:', result.payload);
                 Alert.alert('Error', 'Failed to logout. Please try again.');
@@ -180,22 +187,22 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: 16,
     paddingTop: Platform.OS === 'android' ? 30 : 20,
   },
   webContainer: {
     flex: 1,
     backgroundColor: '#F9FAFB',
-    paddingHorizontal: SPACING.xxl,
-    paddingVertical: SPACING.xxl,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
     minHeight: '100%',
   },
   profileHeader: {
     backgroundColor: '#FFFFFF',
-    borderRadius: RADIUS.lg,
-    padding: SPACING.lg,
+    borderRadius: 16,
+    padding: Platform.OS === 'android' ? 20 : Platform.OS === 'ios' ? 22 : 24,
     alignItems: 'center',
-    marginBottom: SPACING.xl,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -209,35 +216,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0F0F0',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: SPACING.lg,
+    marginBottom: 16,
   },
   userName: {
-    fontSize: TYPOGRAPHY.h2,
-    color: APP_CONFIG.primaryColor,
-    marginBottom: SPACING.xs,
-    fontFamily: FONTS.bold,
+    fontSize: Platform.OS === 'web' ? 18 : Platform.OS === 'android' ? 20 : Platform.OS === 'ios' ? 22 : 24,
+    color: Platform.OS === 'web' ? 'rgb(17, 24, 39)' : APP_CONFIG.primaryColor,
+    marginBottom: Platform.OS === 'web' ? 12 : 4,
+    fontFamily: Platform.OS === 'web' ? 'Poppins_600SemiBold' : FONTS.bold,
   },
   userEmail: {
-    fontSize: TYPOGRAPHY.body,
+    fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
     color: APP_CONFIG.lightTextColor,
-    marginBottom: SPACING.md,
+    marginBottom: 12,
     fontFamily: FONTS.regular,
   },
   membershipBadge: {
     backgroundColor: APP_CONFIG.primaryColor,
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: 16,
     paddingVertical: 6,
-    borderRadius: RADIUS.lg,
+    borderRadius: 18,
   },
   membershipText: {
     color: '#FFFFFF',
-    fontSize: TYPOGRAPHY.label,
+    fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
     fontFamily: FONTS.bold,
   },
   optionsContainer: {
     backgroundColor: '#FFFFFF',
-    borderRadius: RADIUS.lg,
-    marginBottom: SPACING.xl,
+    borderRadius: 16,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -248,8 +255,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.lg,
+    paddingVertical: Platform.OS === 'web' ? 16 : 12,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
   },
@@ -258,9 +265,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   optionText: {
-    fontSize: TYPOGRAPHY.body,
+    fontSize: Platform.OS === 'web' ? 16 : 14,
     color: APP_CONFIG.primaryColor,
-    marginLeft: SPACING.md,
+    marginLeft: 12,
     fontFamily: FONTS.medium,
   },
   logoutButton: {
@@ -268,15 +275,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.lg,
-    borderRadius: RADIUS.md,
-    marginBottom: SPACING.xl,
+    paddingVertical: Platform.OS === 'web' ? 16 : 12,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : 16,
+    borderRadius: 12,
+    marginBottom: 20,
   },
   logoutText: {
     color: '#FFFFFF',
-    fontSize: TYPOGRAPHY.body,
-    marginLeft: SPACING.sm,
+    fontSize: Platform.OS === 'web' ? 16 : 14,
+    marginLeft: 8,
     fontFamily: FONTS.semiBold,
   },
   logoutButtonDisabled: {

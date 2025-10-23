@@ -10,12 +10,13 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import ResponsiveLayout from '../../components/ResponsiveLayout';
 import { APP_CONFIG, FONTS } from '../../constants';
 import MobileAppointmentService from '../../services/mobileAppointmentService';
+import { useBooking } from '../../context/BookingContext';
 
 const { width } = Dimensions.get('window');
 
@@ -28,16 +29,16 @@ interface TimeSlot {
 
 export default function DateTimeSelectionScreen() {
   const navigation = useNavigation();
-  const route = useRoute();
-  const { branchId } = route.params as { branchId: string };
+  const { state, setDateTime, setLoading, setError } = useBooking();
   
-  const [selectedDate, setSelectedDate] = useState<string>('');
-  const [selectedTime, setSelectedTime] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<string>(state.bookingData.date || '');
+  const [selectedTime, setSelectedTime] = useState<string>(state.bookingData.time || '');
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoadingLocal] = useState(false);
   const [availabilityChecked, setAvailabilityChecked] = useState<{ [key: string]: boolean }>({});
+  const [branchHours, setBranchHours] = useState<any>(null);
 
-  // Generate dates for the next 30 days
+  // Generate dates for the next 30 days based on branch hours
   const generateDates = () => {
     const dates = [];
     const today = new Date();
@@ -46,45 +47,97 @@ export default function DateTimeSelectionScreen() {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
       
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+      const isOpen = branchHours?.[dayName]?.isOpen || false;
+      
       dates.push({
         date: date.toISOString().split('T')[0],
         day: date.getDate(),
         dayName: date.toLocaleDateString('en-US', { weekday: 'short' }),
         month: date.toLocaleDateString('en-US', { month: 'short' }),
         isToday: i === 0,
-        isAvailable: i < 14, // Only next 14 days available
+        isAvailable: isOpen
       });
     }
     
     return dates;
   };
 
+  // Load branch hours on component mount
+  useEffect(() => {
+    if (state.bookingData.branchId) {
+      loadBranchHours();
+    }
+  }, [state.bookingData.branchId]);
+
+  const loadBranchHours = async () => {
+    try {
+      setLoading(true);
+      setLoadingLocal(true);
+      
+      // Get branch hours from booking context or fetch from Firestore
+      // For now, we'll use a mock structure - in real implementation, fetch from Firestore
+      const mockHours = {
+        monday: { open: "09:00", close: "18:00", isOpen: true },
+        tuesday: { open: "09:00", close: "18:00", isOpen: true },
+        wednesday: { open: "09:00", close: "18:00", isOpen: true },
+        thursday: { open: "09:00", close: "18:00", isOpen: true },
+        friday: { open: "09:00", close: "18:00", isOpen: true },
+        saturday: { open: "09:00", close: "18:00", isOpen: true },
+        sunday: { open: "10:00", close: "16:00", isOpen: false }
+      };
+      
+      setBranchHours(mockHours);
+    } catch (error) {
+      console.error('Error loading branch hours:', error);
+      setError('Failed to load branch hours');
+    } finally {
+      setLoading(false);
+      setLoadingLocal(false);
+    }
+  };
+
   const dates = generateDates();
 
-  // Generate time slots
-  const generateTimeSlots = (): TimeSlot[] => {
-    const slots = [];
-    const startHour = 9;
-    const endHour = 18;
+  // Generate time slots based on selected date and branch hours
+  const generateTimeSlots = (selectedDate?: string): TimeSlot[] => {
+    if (!selectedDate || !branchHours) return [];
     
-    for (let hour = startHour; hour < endHour; hour++) {
-      for (let minute = 0; minute < 60; minute += 30) {
-        const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-        slots.push({
-          id: hour * 100 + minute,
-          time: timeString,
-          isAvailable: true, // Will be checked against Firebase
-          isSelected: false,
-        });
-      }
+    const slots = [];
+    const date = new Date(selectedDate);
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    const dayHours = branchHours[dayName];
+    
+    if (!dayHours || !dayHours.isOpen || !dayHours.open || !dayHours.close) return [];
+    
+    const [openHour, openMinute] = dayHours.open.split(':').map(Number);
+    const [closeHour, closeMinute] = dayHours.close.split(':').map(Number);
+    
+    const startTime = openHour * 60 + openMinute;
+    const endTime = closeHour * 60 + closeMinute;
+    
+    for (let timeInMinutes = startTime; timeInMinutes < endTime; timeInMinutes += 30) {
+      const hour = Math.floor(timeInMinutes / 60);
+      const minute = timeInMinutes % 60;
+      const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+      const isAvailable = !availabilityChecked[`${selectedDate}-${timeString}`];
+      
+      slots.push({
+        id: timeInMinutes,
+        time: timeString,
+        isAvailable,
+        isSelected: selectedTime === timeString
+      });
     }
     
     return slots;
   };
 
   useEffect(() => {
-    setTimeSlots(generateTimeSlots());
-  }, []);
+    if (selectedDate) {
+      setTimeSlots(generateTimeSlots(selectedDate));
+    }
+  }, [selectedDate, branchHours]);
 
   // Check availability for a specific date and time
   const checkAvailability = async (date: string, time: string) => {
@@ -93,7 +146,7 @@ export default function DateTimeSelectionScreen() {
     
     try {
       setLoading(true);
-      const isAvailable = await MobileAppointmentService.checkTimeSlotAvailability(branchId, date, time);
+      const isAvailable = await MobileAppointmentService.checkTimeSlotAvailability(state.bookingData.branchId || '', date, time);
       setAvailabilityChecked(prev => ({ ...prev, [key]: true }));
       
       setTimeSlots(prev => prev.map(slot => 
@@ -123,11 +176,13 @@ export default function DateTimeSelectionScreen() {
 
   const handleNext = () => {
     if (selectedDate && selectedTime) {
-      (navigation as any).navigate('ServiceStylistSelection', { 
-        branchId, 
-        selectedDate, 
-        selectedTime 
-      });
+      // Save date and time to booking context
+      setDateTime(selectedDate, selectedTime);
+      
+      // Navigate to next step
+      (navigation as any).navigate('ServiceStylistSelection');
+    } else {
+      Alert.alert('Selection Required', 'Please select both date and time to continue.');
     }
   };
 
@@ -232,7 +287,7 @@ export default function DateTimeSelectionScreen() {
             <View style={styles.timeContainer}>
               <Text style={styles.containerTitle}>Select Time</Text>
               {selectedDate ? (
-                loading ? (
+                (loading || state.isLoading) ? (
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color={APP_CONFIG.primaryColor} />
                     <Text style={styles.loadingText}>Checking availability...</Text>
@@ -394,7 +449,7 @@ export default function DateTimeSelectionScreen() {
             <View style={styles.timeContainer}>
               <Text style={styles.containerTitle}>Select Time</Text>
               {selectedDate ? (
-                loading ? (
+                (loading || state.isLoading) ? (
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color={APP_CONFIG.primaryColor} />
                     <Text style={styles.loadingText}>Checking availability...</Text>
@@ -463,11 +518,11 @@ export default function DateTimeSelectionScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F8F9FA',
   },
   webContainer: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8F9FA',
     paddingHorizontal: 24,
     paddingVertical: 24,
     minHeight: '100%',
@@ -540,24 +595,14 @@ const styles = StyleSheet.create({
     gap: 24,
   },
   dateContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F9FA',
     borderRadius: 12,
     padding: Platform.OS === 'android' ? 16 : Platform.OS === 'ios' ? 18 : 20,
-    shadowColor: Platform.OS === 'web' ? '#000000' : '#000',
-    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 2 },
-    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.1,
-    shadowRadius: Platform.OS === 'web' ? 15 : 8,
-    elevation: Platform.OS === 'web' ? 0 : 3,
   },
   timeContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F9FA',
     borderRadius: 12,
     padding: Platform.OS === 'android' ? 16 : Platform.OS === 'ios' ? 18 : 20,
-    shadowColor: Platform.OS === 'web' ? '#000000' : '#000',
-    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 2 },
-    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.1,
-    shadowRadius: Platform.OS === 'web' ? 15 : 8,
-    elevation: Platform.OS === 'web' ? 0 : 3,
   },
   containerTitle: {
     fontSize: Platform.OS === 'android' ? 16 : Platform.OS === 'ios' ? 17 : 18,
