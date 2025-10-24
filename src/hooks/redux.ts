@@ -21,16 +21,6 @@ import {
   updateFilters as updateAppointmentFilters
 } from '../store/slices/appointmentSlice';
 import { 
-  fetchUsers,
-  fetchClients,
-  fetchStylists,
-  fetchUserById,
-  updateUser,
-  clearError as clearUserError,
-  setCurrentUser,
-  updateFilters as updateUserFilters
-} from '../store/slices/userSlice';
-import { 
   fetchNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
@@ -130,56 +120,6 @@ export const useAppointments = () => {
     create,
     update,
     remove,
-    clearError,
-    setCurrent,
-    updateFilters,
-  };
-};
-
-// User hooks
-export const useUsers = () => {
-  const dispatch = useAppDispatch();
-  const users = useAppSelector((state) => state.users);
-
-  const fetchAll = useCallback((filters: Parameters<typeof fetchUsers>[0]) => {
-    return dispatch(fetchUsers(filters));
-  }, [dispatch]);
-
-  const fetchClients = useCallback((filters: any): any => {
-    return dispatch(fetchClients(filters));
-  }, [dispatch]);
-
-  const fetchStylists = useCallback((filters: any): any => {
-    return dispatch(fetchStylists(filters));
-  }, [dispatch]);
-
-  const fetchById = useCallback((id: string) => {
-    return dispatch(fetchUserById(id));
-  }, [dispatch]);
-
-  const update = useCallback((id: string, data: Parameters<typeof updateUser>[0]) => {
-    return dispatch(updateUser({ id, data }));
-  }, [dispatch]);
-
-  const clearError = useCallback(() => {
-    dispatch(clearUserError());
-  }, [dispatch]);
-
-  const setCurrent = useCallback((user: Parameters<typeof setCurrentUser>[0]) => {
-    dispatch(setCurrentUser(user));
-  }, [dispatch]);
-
-  const updateFilters = useCallback((filters: Parameters<typeof updateUserFilters>[0]) => {
-    dispatch(updateUserFilters(filters));
-  }, [dispatch]);
-
-  return {
-    ...users,
-    fetchAll,
-    fetchClients,
-    fetchStylists,
-    fetchById,
-    update,
     clearError,
     setCurrent,
     updateFilters,

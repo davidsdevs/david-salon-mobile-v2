@@ -8,8 +8,8 @@ import { StylistTabParamList } from '../types';
 import StylistDashboardScreen from '../screens/stylist/StylistDashboardScreen';
 import StylistAppointmentsScreen from '../screens/stylist/StylistAppointmentsScreen';
 import StylistClientsScreen from '../screens/stylist/StylistClientsScreen';
-import StylistScheduleScreen from '../screens/stylist/StylistScheduleScreen';
 import StylistPortfolioScreen from '../screens/stylist/StylistPortfolioScreen';
+import StylistProfileScreen from '../screens/stylist/StylistProfileScreen';
 
 const Stack = createStackNavigator<StylistTabParamList>();
 
@@ -60,17 +60,17 @@ export default function StylistWebNavigator() {
           </ScreenWrapper>
         )}
       </Stack.Screen>
-      <Stack.Screen name="StylistSchedule">
-        {() => (
-          <ScreenWrapper screenName="StylistSchedule">
-            <StylistScheduleScreen />
-          </ScreenWrapper>
-        )}
-      </Stack.Screen>
       <Stack.Screen name="StylistPortfolio">
         {() => (
           <ScreenWrapper screenName="StylistPortfolio">
             <StylistPortfolioScreen />
+          </ScreenWrapper>
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="StylistProfile">
+        {() => (
+          <ScreenWrapper screenName="StylistProfile">
+            <StylistProfileScreen />
           </ScreenWrapper>
         )}
       </Stack.Screen>

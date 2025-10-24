@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Image,
   Dimensions,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,17 +16,34 @@ import ScreenWrapper from '../../components/ScreenWrapper';
 import {
   StylistSection,
   StylistPageTitle,
+  StylistSearchBar,
   StylistButton,
   StylistFilterTab,
   StylistCard,
 } from '../../components/stylist';
 import { APP_CONFIG, FONTS } from '../../constants';
+import { useAuth } from '../../hooks/redux';
+import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { db, COLLECTIONS } from '../../config/firebase';
 
 const { width } = Dimensions.get('window');
 
+interface PortfolioItem {
+  id: string;
+  category: string;
+  imageUrl: string;
+  title: string;
+  description?: string;
+  createdAt: string;
+}
+
 export default function StylistPortfolioScreen() {
   const navigation = useNavigation();
+  const { user } = useAuth();
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Scroll to top when screen is focused
@@ -37,54 +55,69 @@ export default function StylistPortfolioScreen() {
 
   const categories = ['All', 'Haircut', 'Color', 'Styling', 'Treatment'];
 
-  const galleryItems = [
-    {
-      id: 1,
-      category: 'Color',
-      imageUrl: 'https://via.placeholder.com/300x400',
-      title: 'Balayage Highlights',
-      likes: 45,
-    },
-    {
-      id: 2,
-      category: 'Haircut',
-      imageUrl: 'https://via.placeholder.com/300x400',
-      title: 'Layered Bob',
-      likes: 32,
-    },
-    {
-      id: 3,
-      category: 'Styling',
-      imageUrl: 'https://via.placeholder.com/300x400',
-      title: 'Bridal Updo',
-      likes: 58,
-    },
-    {
-      id: 4,
-      category: 'Color',
-      imageUrl: 'https://via.placeholder.com/300x400',
-      title: 'Platinum Blonde',
-      likes: 67,
-    },
-    {
-      id: 5,
-      category: 'Treatment',
-      imageUrl: 'https://via.placeholder.com/300x400',
-      title: 'Keratin Treatment',
-      likes: 28,
-    },
-    {
-      id: 6,
-      category: 'Haircut',
-      imageUrl: 'https://via.placeholder.com/300x400',
-      title: 'Pixie Cut',
-      likes: 41,
-    },
-  ];
+  // Set up real-time subscription for portfolio items
+  useEffect(() => {
+    if (!user?.uid && !user?.id) {
+      setLoading(false);
+      return;
+    }
 
-  const filteredItems = selectedCategory === 'All' 
-    ? galleryItems 
-    : galleryItems.filter(item => item.category === selectedCategory);
+    setLoading(true);
+    const stylistId = user.uid || user.id;
+    console.log('🔄 Setting up real-time subscription for portfolio items:', stylistId);
+
+    const portfolioRef = collection(db, 'portfolio');
+    const q = query(portfolioRef, where('stylistId', '==', stylistId));
+
+    // Set up real-time listener
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      try {
+        console.log('📡 Real-time portfolio update received:', querySnapshot.size, 'items');
+        const items: PortfolioItem[] = [];
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          items.push({
+            id: doc.id,
+            category: data['category'] || 'Haircut',
+            imageUrl: data['imageUrl'] || '',
+            title: data['title'] || 'Untitled',
+            description: data['description'] || '',
+            createdAt: data['createdAt']?.toDate().toISOString() || new Date().toISOString(),
+          });
+        });
+
+        // Sort by creation date (newest first)
+        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        console.log('✅ Real-time portfolio items updated:', items.length);
+        setPortfolioItems(items);
+        setLoading(false);
+      } catch (error) {
+        console.error('❌ Error processing portfolio update:', error);
+        setPortfolioItems([]);
+        setLoading(false);
+      }
+    }, (error) => {
+      console.error('❌ Real-time portfolio listener error:', error);
+      setLoading(false);
+    });
+
+    // Cleanup listener on unmount
+    return () => {
+      console.log('🧹 Cleaning up portfolio subscription');
+      unsubscribe();
+    };
+  }, [user?.uid, user?.id]);
+
+  const filteredItems = portfolioItems
+    .filter(item => {
+      const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
+      const matchesSearch = searchQuery === '' || 
+        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchesCategory && matchesSearch;
+    });
 
   const handleUploadPhoto = () => {
     console.log('Upload photo');
@@ -94,9 +127,13 @@ export default function StylistPortfolioScreen() {
   if (Platform.OS === 'web') {
     return (
       <View style={styles.webContainer}>
-        {/* Gallery Header */}
+        {/* Search and Upload */}
         <View style={styles.galleryHeader}>
-          <Text style={styles.galleryTitle}>My Portfolio</Text>
+          <StylistSearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search Portfolio"
+          />
           <TouchableOpacity style={styles.uploadButton} onPress={handleUploadPhoto}>
             <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
             <Text style={styles.uploadButtonText}>Upload Photo</Text>
@@ -129,21 +166,42 @@ export default function StylistPortfolioScreen() {
         </View>
 
         {/* Gallery Grid */}
-        <View style={styles.galleryGrid}>
-          {filteredItems.map((item) => (
-            <View key={item.id} style={styles.galleryCard}>
-              <View style={styles.imageContainer}>
-                <Ionicons name="image" size={60} color="#CCCCCC" />
-              </View>
-              <View style={styles.galleryCardInfo}>
-                <Text style={styles.galleryCardTitle}>{item.title}</Text>
-                <View style={styles.galleryCardFooter}>
-                  <Text style={styles.categoryTag}>{item.category}</Text>
+        {loading ? (
+          <View style={styles.emptyState}>
+            <ActivityIndicator size="large" color="#160B53" />
+            <Text style={styles.emptyStateText}>Loading portfolio...</Text>
+          </View>
+        ) : filteredItems.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="images-outline" size={64} color="#D1D5DB" />
+            <Text style={styles.emptyStateTitle}>No Portfolio Items</Text>
+            <Text style={styles.emptyStateText}>
+              {selectedCategory === 'All' 
+                ? 'Upload your first work to showcase your skills!' 
+                : `No ${selectedCategory.toLowerCase()} items in your portfolio yet.`}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.galleryGrid}>
+            {filteredItems.map((item) => (
+              <View key={item.id} style={styles.galleryCard}>
+                <View style={styles.imageContainer}>
+                  {item.imageUrl ? (
+                    <Image source={{ uri: item.imageUrl }} style={styles.portfolioImage} />
+                  ) : (
+                    <Ionicons name="image" size={60} color="#CCCCCC" />
+                  )}
+                </View>
+                <View style={styles.galleryCardInfo}>
+                  <Text style={styles.galleryCardTitle}>{item.title}</Text>
+                  <View style={styles.galleryCardFooter}>
+                    <Text style={styles.categoryTag}>{item.category}</Text>
+                  </View>
                 </View>
               </View>
-            </View>
-          ))}
-        </View>
+            ))}
+          </View>
+        )}
       </View>
     );
   }
@@ -152,21 +210,17 @@ export default function StylistPortfolioScreen() {
   return (
     <ScreenWrapper title="Portfolio" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Gallery Header */}
-        <StylistSection isTitle>
-          <View style={styles.headerRow}>
-            <StylistPageTitle title="My Portfolio" />
-            <StylistButton
-              title="Upload"
-              onPress={handleUploadPhoto}
-              variant="primary"
-              icon="add-circle-outline"
-            />
-          </View>
+        {/* Search */}
+        <StylistSection style={styles.searchSection}>
+          <StylistSearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search Portfolio"
+          />
         </StylistSection>
 
         {/* Category Filter */}
-        <StylistSection>
+        <StylistSection style={styles.categorySection}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.categoryContainer}>
               {categories.map((category) => (
@@ -194,23 +248,52 @@ export default function StylistPortfolioScreen() {
 
         {/* Gallery Grid */}
         <StylistSection>
-          <View style={styles.galleryGrid}>
-            {filteredItems.map((item) => (
-              <View key={item.id} style={styles.galleryCard}>
-                <View style={styles.imageContainer}>
-                  <Ionicons name="image" size={50} color="#CCCCCC" />
-                </View>
-                <View style={styles.galleryCardInfo}>
-                  <Text style={styles.galleryCardTitle}>{item.title}</Text>
-                  <View style={styles.galleryCardFooter}>
-                    <Text style={styles.categoryTag}>{item.category}</Text>
+          {loading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator size="large" color="#160B53" />
+              <Text style={styles.emptyStateText}>Loading portfolio...</Text>
+            </View>
+          ) : filteredItems.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="images-outline" size={64} color="#D1D5DB" />
+              <Text style={styles.emptyStateTitle}>No Portfolio Items</Text>
+              <Text style={styles.emptyStateText}>
+                {selectedCategory === 'All' 
+                  ? 'Upload your first work to showcase your skills!' 
+                  : `No ${selectedCategory.toLowerCase()} items in your portfolio yet.`}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.galleryGrid}>
+              {filteredItems.map((item) => (
+                <View key={item.id} style={styles.galleryCard}>
+                  <View style={styles.imageContainer}>
+                    {item.imageUrl ? (
+                      <Image source={{ uri: item.imageUrl }} style={styles.portfolioImage} />
+                    ) : (
+                      <Ionicons name="image" size={50} color="#CCCCCC" />
+                    )}
+                  </View>
+                  <View style={styles.galleryCardInfo}>
+                    <Text style={styles.galleryCardTitle}>{item.title}</Text>
+                    <View style={styles.galleryCardFooter}>
+                      <Text style={styles.categoryTag}>{item.category}</Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          )}
         </StylistSection>
       </ScrollView>
+      
+      {/* Floating Upload Button */}
+      <TouchableOpacity 
+        style={styles.floatingButton}
+        onPress={handleUploadPhoto}
+      >
+        <Ionicons name="add" size={32} color="#FFFFFF" />
+      </TouchableOpacity>
     </ScreenWrapper>
   );
 }
@@ -219,6 +302,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  searchSection: {
+    marginTop: 16,
+  },
+  categorySection: {
+    marginTop: -12,
   },
   webContainer: {
     flex: 1,
@@ -345,5 +434,46 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9CA3AF',
     fontFamily: 'Poppins_400Regular',
+  },
+  portfolioImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    color: '#160B53',
+    fontFamily: FONTS.bold,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontFamily: FONTS.regular,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  floatingButton: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: APP_CONFIG.primaryColor,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 1000,
   },
 });

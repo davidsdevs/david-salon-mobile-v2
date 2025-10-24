@@ -239,7 +239,11 @@ export class FirebaseAuthService {
         console.log('🔄 getUserProfile: Raw user data from Firestore:', { 
           role: userData['role'], 
           userType: userData['userType'],
-          email: userData['email'] 
+          email: userData['email'],
+          phone: userData['phone'],
+          phoneNumber: userData['phoneNumber'],
+          firstName: userData['firstName'],
+          lastName: userData['lastName']
         });
         return this.convertFirestoreDataToUser(userData, userDoc.id);
       }
@@ -335,12 +339,18 @@ export class FirebaseAuthService {
       role: converted.role, 
       roles: converted.roles,
       userType: converted.userType,
-      email: converted.email 
+      email: converted.email,
+      phone: converted.phone,
+      phoneNumber: converted.phoneNumber,
+      firstName: converted.firstName,
+      lastName: converted.lastName
     });
     
     return {
       id,
+      uid: id, // Add uid field for compatibility
       ...converted,
+      phone: converted.phone || converted.phoneNumber || '', // Explicitly include phone
       createdAt: converted.createdAt || new Date().toISOString(),
       updatedAt: converted.updatedAt || new Date().toISOString()
     } as User;

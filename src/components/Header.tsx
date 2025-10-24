@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, COLLECTIONS } from '../config/firebase';
+import { useAuth } from '../hooks/redux';
 import { FONTS, APP_CONFIG, SCREEN_DIMENSIONS } from '../constants';
 
 interface HeaderProps {
@@ -31,15 +34,33 @@ export default function Header({
 }: HeaderProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const { user } = useAuth();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Listen to unread notifications
+  useEffect(() => {
+    if (!user?.uid && !user?.id) return;
+
+    const userId = user.uid || user.id;
+    const notificationsRef = collection(db, COLLECTIONS.NOTIFICATIONS);
+    const q = query(
+      notificationsRef,
+      where('userId', '==', userId),
+      where('isRead', '==', false)
+    );
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      setUnreadCount(querySnapshot.size);
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid, user?.id]);
 
   const handleNotificationPress = () => {
     const notificationRoute = userType === 'stylist' ? 'StylistNotifications' : 'Notifications';
     (navigation as any).navigate(notificationRoute);
   };
 
-  const handleProfilePress = () => {
-    (navigation as any).navigate('StylistProfile');
-  };
 
   const handleBackPress = () => {
     (navigation as any).goBack();
@@ -77,16 +98,17 @@ export default function Header({
               style={styles.iconButton}
               onPress={handleNotificationPress}
             >
-              <Ionicons name="notifications" size={24} color={APP_CONFIG.primaryColor} />
+              <View style={styles.notificationIconContainer}>
+                <Ionicons name="notifications" size={24} color={APP_CONFIG.primaryColor} />
+                {unreadCount > 0 && (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </TouchableOpacity>
-            {userType === 'stylist' ? (
-              <TouchableOpacity 
-                style={styles.profileCircle}
-                onPress={handleProfilePress}
-              >
-                <Ionicons name="person" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-            ) : null}
           </View>
         )}
       </View>
@@ -145,15 +167,6 @@ const styles = StyleSheet.create({
   },
   notificationButton: {
     padding: 5,
-  },
-  profileCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: APP_CONFIG.primaryColor,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 4,
   },
   notificationIconContainer: {
     position: 'relative',

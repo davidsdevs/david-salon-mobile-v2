@@ -9,6 +9,7 @@ import {
   Platform,
   Modal,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,7 +25,7 @@ import {
 } from '../../components/stylist';
 import { APP_CONFIG, FONTS } from '../../constants';
 import { AppointmentService } from '../../services/appointmentService';
-import useAuth from '../../hooks/useAuth';
+import { useAuth } from '../../hooks/redux';
 import { Appointment } from '../../types';
 
 const { width } = Dimensions.get('window');
@@ -34,48 +35,118 @@ export default function StylistAppointmentsScreen() {
   const navigation = useNavigation();
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState('All');
+  const [selectedFilter, setSelectedFilter] = useState('Today');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [sortBy, setSortBy] = useState<'time' | 'client'>('time');
+  const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
 
-  const filterOptions = ['All', 'Today', 'Upcoming', 'Completed'];
+  const filterOptions = ['Today', 'Upcoming', 'Scheduled', 'Confirmed', 'In-Service', 'Completed', 'Cancelled'];
 
-  // Fetch appointments from Firebase
+  // Set up real-time subscription for appointments
   useEffect(() => {
-    const fetchAppointments = async () => {
-      if (!user?.uid) {
-        setLoading(false);
-        return;
-      }
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
 
-      try {
-        setLoading(true);
-        const data = await AppointmentService.getStylistAppointments(user.uid);
-        setAppointments(data);
-      } catch (error) {
-        console.error('Error fetching appointments:', error);
-      } finally {
+    console.log('🔄 Setting up real-time subscription for stylist appointments:', user.uid);
+    setLoading(true);
+    setError(null);
+
+    // Set up real-time listener
+    const unsubscribe = AppointmentService.subscribeToStylistAppointments(
+      user.uid,
+      (updatedAppointments) => {
+        console.log('📡 Real-time update received:', updatedAppointments.length, 'appointments');
+        setAppointments(updatedAppointments);
         setLoading(false);
+        setError(null);
+      }
+    );
+
+    // Cleanup subscription on unmount
+    return () => {
+      console.log('🧹 Cleaning up stylist appointment subscription');
+      if (unsubscribe) {
+        unsubscribe();
       }
     };
-
-    fetchAppointments();
   }, [user?.uid]);
 
   const filteredAppointments = appointments.filter(appointment => {
-    const clientName = `${appointment.clientFirstName || ''} ${appointment.clientLastName || ''}`.toLowerCase();
-    const serviceName = appointment.service?.name?.toLowerCase() || '';
+    // Use real Firebase data fields
+    const clientName = appointment.clientName || 
+                      `${appointment.clientFirstName || ''} ${appointment.clientLastName || ''}`.trim() ||
+                      'Unknown Client';
+    const serviceName = appointment.service?.name || 
+                       (appointment.services && appointment.services[0]?.name) ||
+                       'Unknown Service';
     
-    const matchesSearch = clientName.includes(searchQuery.toLowerCase()) ||
-                         serviceName.includes(searchQuery.toLowerCase());
+    const matchesSearch = clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         serviceName.toLowerCase().includes(searchQuery.toLowerCase());
     
-    // Check if filter matches status
-    const matchesFilter = selectedFilter === 'All' || 
-                         appointment.status === selectedFilter.toLowerCase();
+    // Check if filter matches status and date
+    let matchesFilter = false;
+    const appointmentDate = new Date(appointment.appointmentDate || appointment.date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    switch (selectedFilter) {
+      case 'Today':
+        // Today shows ALL appointments scheduled for today (any status)
+        matchesFilter = appointmentDate >= today && appointmentDate < tomorrow;
+        break;
+      case 'Upcoming':
+        // Upcoming shows only scheduled appointments from tomorrow onwards (excludes today and cancelled)
+        matchesFilter = appointmentDate >= tomorrow && appointment.status === 'scheduled';
+        break;
+      case 'Scheduled':
+        // Scheduled shows all scheduled appointments (any date, excludes cancelled)
+        matchesFilter = appointment.status === 'scheduled';
+        break;
+      case 'Confirmed':
+        // Confirmed shows only confirmed appointments
+        matchesFilter = appointment.status === 'confirmed';
+        break;
+      case 'In-Service':
+        // In-Service shows only in-service appointments
+        matchesFilter = appointment.status === 'in-service';
+        break;
+      case 'Completed':
+        // Completed shows only completed appointments
+        matchesFilter = appointment.status === 'completed';
+        break;
+      case 'Cancelled':
+        // Cancelled shows only cancelled appointments
+        matchesFilter = appointment.status === 'cancelled';
+        break;
+      default:
+        matchesFilter = true;
+    }
     
     return matchesSearch && matchesFilter;
+  }).sort((a, b) => {
+    // Sort appointments based on selected sort option
+    switch (sortBy) {
+      case 'time':
+        // Sort by appointment time
+        const timeA = a.appointmentTime || a.startTime || '';
+        const timeB = b.appointmentTime || b.startTime || '';
+        return timeA.localeCompare(timeB);
+      case 'client':
+        // Sort by client name
+        const clientA = a.clientName || `${a.clientFirstName || ''} ${a.clientLastName || ''}`.trim() || '';
+        const clientB = b.clientName || `${b.clientFirstName || ''} ${b.clientLastName || ''}`.trim() || '';
+        return clientA.localeCompare(clientB);
+      default:
+        return 0;
+    }
   });
 
   const getStatusColor = (status: string) => {
@@ -155,85 +226,38 @@ export default function StylistAppointmentsScreen() {
     handleCloseModal();
   };
 
-  // For web, render without ScreenWrapper to avoid duplicate headers
-  if (Platform.OS === 'web') {
-    return (
-      <View style={styles.webContainer}>
-        {/* Page Title */}
-        <View style={styles.section}>
-          <Text style={styles.pageTitle}>Appointment Management</Text>
-        </View>
+  // Helper function to determine client type
+  const getClientType = (appointment: any): 'X' | 'TR' | 'R' => {
+    // Check if appointment has clientType field
+    if (appointment.clientType) {
+      if (appointment.clientType === 'new' || appointment.clientType === 'X - New Client') return 'X';
+      if (appointment.clientType === 'transfer' || appointment.clientType === 'TR - Transfer') return 'TR';
+      if (appointment.clientType === 'regular' || appointment.clientType === 'R - Regular') return 'R';
+    }
+    // Default to Regular
+    return 'R';
+  };
 
-        {/* Upcoming Appointments */}
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Upcoming Appointment</Text>
-            {/* Filter Dropdown */}
-          </View>
-          {filteredAppointments.map((appointment) => (
-            <View key={appointment.id} style={styles.appointmentCard}>
-              <View style={styles.appointmentLeft}>
-                <View style={styles.appointmentIcon}>
-                  <Ionicons name="calendar" size={20} color="#4A90E2" />
-                </View>
-                <View style={styles.appointmentDetails}>
-                  <View style={styles.nameRow}>
-                    <Text style={styles.appointmentService}>{appointment.client}</Text>
-                    <StylistBadge
-                      label={appointment.clientType}
-                      variant={
-                        appointment.clientType === 'X - New Client' ? 'new-client' :
-                        appointment.clientType === 'R - Regular' ? 'regular' :
-                        appointment.clientType === 'TR - Transfer' ? 'transfer' : 'default'
-                      }
-                      size="small"
-                    />
-                  </View>
-                  <Text style={styles.appointmentStylist}>{appointment.service}</Text>
-                  <View style={styles.appointmentInfo}>
-                    <View style={styles.appointmentInfoItem}>
-                      <Ionicons name="time" size={14} color="#666" />
-                      <Text style={styles.appointmentInfoText}>
-                        {appointment.time} • {appointment.duration}
-                      </Text>
-                    </View>
-                    <View style={styles.appointmentInfoItem}>
-                      <Ionicons name="location" size={14} color="#666" />
-                      <Text style={styles.appointmentInfoText}>{appointment.location}</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-              <View style={styles.appointmentRight}>
-                <Text style={styles.priceText}>{appointment.price}</Text>
-                <StylistBadge
-                  label={appointment.status}
-                  variant={
-                    appointment.status === 'confirmed' ? 'confirmed' :
-                    appointment.status === 'pending' ? 'pending' :
-                    appointment.status === 'cancelled' ? 'cancelled' : 'default'
-                  }
-                  size="small"
-                />
-              </View>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  }
+  // Helper function to get client type variant for badge
+  const getClientTypeVariant = (type: 'X' | 'TR' | 'R') => {
+    if (type === 'X') return 'new-client';
+    if (type === 'TR') return 'transfer';
+    return 'regular';
+  };
 
-  // For mobile, use ScreenWrapper with header
+  // Helper function to get full client type label
+  const getFullClientTypeLabel = (type: 'X' | 'TR' | 'R') => {
+    if (type === 'X') return 'X - New Client';
+    if (type === 'TR') return 'TR - Transfer';
+    return 'R - Regular';
+  };
+
+  // Mobile-first responsive layout
   return (
     <ScreenWrapper title="Appointments" userType="stylist">
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Page Title */}
-        <StylistSection isTitle>
-          <StylistPageTitle title="Appointment Management" />
-        </StylistSection>
-
         {/* Search and Filters */}
-        <StylistSection>
+        <StylistSection style={styles.searchSection}>
           <StylistSearchBar
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -264,10 +288,77 @@ export default function StylistAppointmentsScreen() {
           </ScrollView>
         </StylistSection>
 
-        {/* Upcoming Appointments */}
+        {/* Appointments List */}
         <StylistSection>
-          <Text style={styles.sectionTitle}>Upcoming Appointment</Text>
-          {filteredAppointments.map((appointment) => (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Appointments List</Text>
+            <View style={styles.sortContainer}>
+              <TouchableOpacity 
+                style={styles.sortIconButton}
+                onPress={() => setSortDropdownVisible(!sortDropdownVisible)}
+              >
+                <Ionicons name="swap-vertical" size={20} color="#160B53" />
+                <Ionicons 
+                  name={sortDropdownVisible ? "chevron-up" : "chevron-down"} 
+                  size={16} 
+                  color="#160B53" 
+                />
+              </TouchableOpacity>
+              
+              {sortDropdownVisible && (
+                <View style={styles.sortDropdown}>
+                  <TouchableOpacity 
+                    style={[styles.sortDropdownItem, sortBy === 'time' && styles.sortDropdownItemActive]}
+                    onPress={() => {
+                      setSortBy('time');
+                      setSortDropdownVisible(false);
+                    }}
+                  >
+                    <Ionicons name="time-outline" size={18} color={sortBy === 'time' ? '#160B53' : '#6B7280'} />
+                    <Text style={[styles.sortDropdownText, sortBy === 'time' && styles.sortDropdownTextActive]}>
+                      Sort by Time
+                    </Text>
+                    {sortBy === 'time' && <Ionicons name="checkmark" size={18} color="#160B53" />}
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.sortDropdownItem, sortBy === 'client' && styles.sortDropdownItemActive]}
+                    onPress={() => {
+                      setSortBy('client');
+                      setSortDropdownVisible(false);
+                    }}
+                  >
+                    <Ionicons name="person-outline" size={18} color={sortBy === 'client' ? '#160B53' : '#6B7280'} />
+                    <Text style={[styles.sortDropdownText, sortBy === 'client' && styles.sortDropdownTextActive]}>
+                      Sort by Client
+                    </Text>
+                    {sortBy === 'client' && <Ionicons name="checkmark" size={18} color="#160B53" />}
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+          {loading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator size="large" color="#160B53" />
+              <Text style={styles.emptyStateText}>Loading appointments...</Text>
+            </View>
+          ) : filteredAppointments.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="calendar-outline" size={64} color="#D1D5DB" />
+              <Text style={styles.emptyStateTitle}>No Appointments</Text>
+              <Text style={styles.emptyStateText}>
+                {selectedFilter === 'Today' ? 'You have no appointments scheduled for today.' :
+                 selectedFilter === 'Upcoming' ? 'You have no upcoming scheduled appointments.' :
+                 selectedFilter === 'Confirmed' ? 'You have no confirmed appointments.' :
+                 selectedFilter === 'In-Service' ? 'You have no appointments in service.' :
+                 selectedFilter === 'Completed' ? 'You have no completed appointments.' :
+                 selectedFilter === 'Cancelled' ? 'You have no cancelled appointments.' :
+                 'No appointments found.'}
+              </Text>
+            </View>
+          ) : (
+            filteredAppointments.map((appointment) => (
             <TouchableOpacity 
               key={appointment.id} 
               style={styles.appointmentCard}
@@ -279,46 +370,76 @@ export default function StylistAppointmentsScreen() {
                 </View>
                 <View style={styles.appointmentDetails}>
                   <View style={styles.nameRow}>
-                    <Text style={styles.appointmentService}>{appointment.client}</Text>
+                    <Text style={styles.appointmentService}>
+                      {appointment.clientName || 
+                       `${appointment.clientFirstName || ''} ${appointment.clientLastName || ''}`.trim() ||
+                       'Unknown Client'}
+                    </Text>
                     <StylistBadge
-                      label={appointment.clientType}
-                      variant={
-                        appointment.clientType === 'X - New Client' ? 'new-client' :
-                        appointment.clientType === 'R - Regular' ? 'regular' :
-                        appointment.clientType === 'TR - Transfer' ? 'transfer' : 'default'
-                      }
+                      label={getClientType(appointment)}
+                      variant={getClientTypeVariant(getClientType(appointment))}
                       size="small"
                     />
                   </View>
-                  <Text style={styles.appointmentStylist}>{appointment.service}</Text>
+                  {/* Service Display - Only show count for multiple services */}
+                  {(appointment as any).serviceStylistPairs && (appointment as any).serviceStylistPairs.length > 0 ? (
+                    <Text style={styles.appointmentStylist}>
+                      {(appointment as any).serviceStylistPairs.length === 1 
+                        ? (appointment as any).serviceStylistPairs[0].serviceName
+                        : `${(appointment as any).serviceStylistPairs.length} Services`}
+                    </Text>
+                  ) : (
+                    <Text style={styles.appointmentStylist}>
+                      {appointment.service?.name || 
+                       (appointment.services && appointment.services[0]?.name) ||
+                       'Unknown Service'}
+                    </Text>
+                  )}
                   <View style={styles.appointmentInfo}>
                     <View style={styles.appointmentInfoItem}>
                       <Ionicons name="time" size={14} color="#666" />
                       <Text style={styles.appointmentInfoText}>
-                        {appointment.time} • {appointment.duration}
+                        {appointment.appointmentTime || appointment.startTime || 'N/A'}
                       </Text>
-                    </View>
-                    <View style={styles.appointmentInfoItem}>
-                      <Ionicons name="location" size={14} color="#666" />
-                      <Text style={styles.appointmentInfoText}>{appointment.location}</Text>
                     </View>
                   </View>
                 </View>
               </View>
               <View style={styles.appointmentRight}>
-                <Text style={styles.priceText}>{appointment.price}</Text>
+                <Text style={styles.priceText}>
+                  ₱{(() => {
+                    // Calculate total price from serviceStylistPairs if available
+                    if ((appointment as any).serviceStylistPairs && (appointment as any).serviceStylistPairs.length > 0) {
+                      const total = (appointment as any).serviceStylistPairs.reduce(
+                        (sum: number, pair: any) => sum + (pair.servicePrice || 0), 
+                        0
+                      );
+                      return total.toFixed(2);
+                    }
+                    // Fallback to existing price fields
+                    return (appointment.price || appointment.finalPrice || 0).toFixed(2);
+                  })()}
+                </Text>
                 <StylistBadge
-                  label={appointment.status}
+                  label={
+                    appointment.status === 'confirmed' ? 'Confirmed' :
+                    appointment.status === 'scheduled' ? 'Scheduled' :
+                    appointment.status === 'in_service' ? 'In Service' :
+                    appointment.status === 'completed' ? 'Completed' :
+                    appointment.status === 'cancelled' ? 'Cancelled' : appointment.status
+                  }
                   variant={
                     appointment.status === 'confirmed' ? 'confirmed' :
-                    appointment.status === 'pending' ? 'pending' :
+                    appointment.status === 'scheduled' ? 'scheduled' :
+                    appointment.status === 'in_service' ? 'in-service' :
+                    appointment.status === 'completed' ? 'completed' :
                     appointment.status === 'cancelled' ? 'cancelled' : 'default'
                   }
                   size="small"
                 />
               </View>
             </TouchableOpacity>
-          ))}
+          )))}
         </StylistSection>
 
         {/* Appointment Details Modal */}
@@ -342,14 +463,14 @@ export default function StylistAppointmentsScreen() {
                         <Ionicons name="person" size={32} color="#160B53" />
                       </View>
                       <View style={styles.modalClientInfo}>
-                        <Text style={styles.modalClientName}>{selectedAppointment.client}</Text>
+                        <Text style={styles.modalClientName}>
+                          {selectedAppointment.clientName || 
+                           `${selectedAppointment.clientFirstName || ''} ${selectedAppointment.clientLastName || ''}`.trim() ||
+                           'Unknown Client'}
+                        </Text>
                         <StylistBadge
-                          label={selectedAppointment.clientType}
-                          variant={
-                            selectedAppointment.clientType === 'X - New Client' ? 'new-client' :
-                            selectedAppointment.clientType === 'R - Regular' ? 'regular' :
-                            selectedAppointment.clientType === 'TR - Transfer' ? 'transfer' : 'default'
-                          }
+                          label={getFullClientTypeLabel(getClientType(selectedAppointment))}
+                          variant={getClientTypeVariant(getClientType(selectedAppointment))}
                           size="small"
                         />
                       </View>
@@ -359,26 +480,62 @@ export default function StylistAppointmentsScreen() {
                   {/* Appointment Details Section */}
                   <View style={styles.modalSection}>
                     <View style={styles.modalDetailRow}>
+                      <Ionicons name="calendar-outline" size={20} color="#666" />
+                      <View style={styles.modalDetailContent}>
+                        <Text style={styles.modalDetailLabel}>Date</Text>
+                        <Text style={styles.modalDetailValue}>
+                          {selectedAppointment.appointmentDate 
+                            ? new Date(selectedAppointment.appointmentDate).toLocaleDateString('en-US', { 
+                                weekday: 'long', 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                              })
+                            : selectedAppointment.date 
+                              ? new Date(selectedAppointment.date).toLocaleDateString('en-US', { 
+                                  weekday: 'long', 
+                                  year: 'numeric', 
+                                  month: 'long', 
+                                  day: 'numeric' 
+                                })
+                              : 'N/A'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.modalDetailRow}>
                       <Ionicons name="cut-outline" size={20} color="#666" />
                       <View style={styles.modalDetailContent}>
-                        <Text style={styles.modalDetailLabel}>Service</Text>
-                        <Text style={styles.modalDetailValue}>{selectedAppointment.service}</Text>
+                        <Text style={styles.modalDetailLabel}>
+                          {(selectedAppointment as any).serviceStylistPairs && (selectedAppointment as any).serviceStylistPairs.length > 1 
+                            ? 'Services' 
+                            : 'Service'}
+                        </Text>
+                        {(selectedAppointment as any).serviceStylistPairs && (selectedAppointment as any).serviceStylistPairs.length > 0 ? (
+                          <View>
+                            {(selectedAppointment as any).serviceStylistPairs.map((pair: any, index: number) => (
+                              <Text key={index} style={styles.modalDetailValue}>
+                                {(selectedAppointment as any).serviceStylistPairs.length > 1 ? '\u2022 ' : ''}{pair.serviceName} (\u20b1{pair.servicePrice})
+                              </Text>
+                            ))}
+                          </View>
+                        ) : (
+                          <Text style={styles.modalDetailValue}>
+                            {selectedAppointment.service?.name || 
+                             (selectedAppointment.services && selectedAppointment.services[0]?.name) ||
+                             'Unknown Service'}
+                          </Text>
+                        )}
                       </View>
                     </View>
                     
                     <View style={styles.modalDetailRow}>
                       <Ionicons name="time-outline" size={20} color="#666" />
                       <View style={styles.modalDetailContent}>
-                        <Text style={styles.modalDetailLabel}>Time & Duration</Text>
-                        <Text style={styles.modalDetailValue}>{selectedAppointment.time} • {selectedAppointment.duration}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.modalDetailRow}>
-                      <Ionicons name="location-outline" size={20} color="#666" />
-                      <View style={styles.modalDetailContent}>
-                        <Text style={styles.modalDetailLabel}>Location</Text>
-                        <Text style={styles.modalDetailValue}>{selectedAppointment.location}</Text>
+                        <Text style={styles.modalDetailLabel}>Time</Text>
+                        <Text style={styles.modalDetailValue}>
+                          {selectedAppointment.appointmentTime || selectedAppointment.startTime || 'N/A'}
+                        </Text>
                       </View>
                     </View>
 
@@ -386,7 +543,19 @@ export default function StylistAppointmentsScreen() {
                       <Ionicons name="cash-outline" size={20} color="#666" />
                       <View style={styles.modalDetailContent}>
                         <Text style={styles.modalDetailLabel}>Price</Text>
-                        <Text style={styles.modalDetailValue}>{selectedAppointment.price}</Text>
+                        <Text style={styles.modalDetailValue}>
+                          ₱{selectedAppointment.price || selectedAppointment.finalPrice || 0}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.modalDetailRow}>
+                      <Ionicons name="document-text-outline" size={20} color="#666" />
+                      <View style={styles.modalDetailContent}>
+                        <Text style={styles.modalDetailLabel}>Notes</Text>
+                        <Text style={styles.modalDetailValue}>
+                          {selectedAppointment.notes || 'No notes'}
+                        </Text>
                       </View>
                     </View>
 
@@ -395,8 +564,20 @@ export default function StylistAppointmentsScreen() {
                       <View style={styles.modalDetailContent}>
                         <Text style={styles.modalDetailLabel}>Status</Text>
                         <StylistBadge
-                          label={selectedAppointment.status}
-                          variant={selectedAppointment.status === 'confirmed' ? 'confirmed' : 'pending'}
+                          label={
+                            selectedAppointment.status === 'confirmed' ? 'Confirmed' :
+                            selectedAppointment.status === 'scheduled' ? 'Scheduled' :
+                            selectedAppointment.status === 'in_service' ? 'In Service' :
+                            selectedAppointment.status === 'completed' ? 'Completed' :
+                            selectedAppointment.status === 'cancelled' ? 'Cancelled' : selectedAppointment.status
+                          }
+                          variant={
+                            selectedAppointment.status === 'confirmed' ? 'confirmed' :
+                            selectedAppointment.status === 'scheduled' ? 'scheduled' :
+                            selectedAppointment.status === 'in_service' ? 'in-service' :
+                            selectedAppointment.status === 'completed' ? 'completed' :
+                            selectedAppointment.status === 'cancelled' ? 'cancelled' : 'default'
+                          }
                           size="small"
                         />
                       </View>
@@ -417,48 +598,102 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
-  webContainer: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-    paddingHorizontal: 24,
-    paddingVertical: 24,
-    minHeight: '100%',
+  searchSection: {
+    marginTop: 16,
   },
   section: {
-    paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
-    marginBottom: Platform.OS === 'web' ? 20 : 12,
-    paddingTop: Platform.OS === 'web' ? 0 : Platform.OS === 'android' ? 16 : 12,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    paddingTop: Platform.OS === 'android' ? 16 : 12,
   },
   titleSection: {
-    paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
-    marginBottom: Platform.OS === 'web' ? 20 : 12,
-    paddingTop: Platform.OS === 'web' ? 0 : Platform.OS === 'android' ? 24 : 20,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    paddingTop: Platform.OS === 'android' ? 24 : 20,
   },
   sectionCard: {
-    backgroundColor: Platform.OS === 'web' ? '#FFFFFF' : 'transparent',
-    borderRadius: Platform.OS === 'web' ? 12 : 0,
-    padding: Platform.OS === 'web' ? 20 : 0,
-    marginBottom: Platform.OS === 'web' ? 24 : 20,
-    shadowColor: Platform.OS === 'web' ? '#000000' : 'transparent',
-    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 0 },
-    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0,
-    shadowRadius: Platform.OS === 'web' ? 15 : 0,
-    elevation: Platform.OS === 'web' ? 0 : 0,
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    padding: 0,
+    marginBottom: 20,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Platform.OS === 'web' ? 16 : 12,
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: Platform.OS === 'web' ? 16 : Platform.OS === 'ios' ? 15 : Platform.OS === 'android' ? 14 : 16,
-    color: Platform.OS === 'web' ? '#000000' : '#160B53',
-    fontFamily: Platform.OS === 'web' ? 'Poppins_600SemiBold' : 'Poppins_600SemiBold',
+    fontSize: Platform.OS === 'ios' ? 15 : Platform.OS === 'android' ? 14 : 16,
+    color: '#160B53',
+    fontFamily: 'Poppins_600SemiBold',
     marginBottom: 16,
   },
+  sortContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
+  sortIconButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  sortDropdown: {
+    position: 'absolute',
+    top: 45,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    minWidth: 180,
+    zIndex: 1001,
+  },
+  sortDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  sortDropdownItemActive: {
+    backgroundColor: '#F9FAFB',
+  },
+  sortDropdownText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#6B7280',
+    fontFamily: 'Poppins_500Medium',
+  },
+  sortDropdownTextActive: {
+    color: '#160B53',
+    fontFamily: 'Poppins_600SemiBold',
+  },
   pageTitle: {
-    fontSize: Platform.OS === 'web' ? 25 : 18,
+    fontSize: 18,
     color: '#160B53',
     fontFamily: 'Poppins_700Bold',
     marginBottom: 8,
@@ -535,6 +770,17 @@ const styles = StyleSheet.create({
     fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
     color: '#666',
     marginBottom: 8,
+    fontFamily: 'Poppins_400Regular',
+  },
+  servicesList: {
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  serviceItem: {
+    fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
+    color: '#888',
+    marginLeft: 8,
+    marginTop: 2,
     fontFamily: 'Poppins_400Regular',
   },
   appointmentInfo: {
@@ -789,6 +1035,12 @@ const styles = StyleSheet.create({
     color: '#160B53',
     fontFamily: FONTS.bold,
   },
+  modalClientNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
   modalDetailRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -827,5 +1079,59 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#10B981',
     fontFamily: FONTS.semiBold,
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6B7280',
+    fontFamily: FONTS.medium,
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    color: '#160B53',
+    fontFamily: FONTS.bold,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontFamily: FONTS.regular,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  errorContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 8,
+    margin: 16,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#EF4444',
+    fontFamily: FONTS.medium,
+    textAlign: 'center',
+  },
+  emptyContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#6B7280',
+    fontFamily: FONTS.medium,
+    textAlign: 'center',
   },
 });

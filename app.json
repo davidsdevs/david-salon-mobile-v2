@@ -13,9 +13,18 @@
       "resizeMode": "contain",
       "backgroundColor": "#160B53"
     },
+    "notification": {
+      "icon": "./assets/logo.png",
+      "color": "#160B53",
+      "androidMode": "default",
+      "androidCollapsedTitle": "David's Salon"
+    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.davidssalon.mobile"
+      "bundleIdentifier": "com.davidssalon.mobile",
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +32,12 @@
         "backgroundColor": "#160B53"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.davidssalon.mobile"
+      "package": "com.davidssalon.mobile",
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/logo.png"

@@ -18,6 +18,8 @@ import {
 import { db } from '../config/firebase';
 import { FirestoreAppointment, FirestoreService, FirestoreStylist, FirestoreBranch } from '../types/firebase';
 import { Appointment, Service, Stylist, Branch } from '../types/api';
+import { NotificationService } from './notificationService';
+import { StylistNotificationService } from './stylistNotificationService';
 
 export class AppointmentService {
   private static readonly COLLECTION_NAME = 'appointments';
@@ -176,6 +178,108 @@ export class AppointmentService {
     }
   }
 
+  // Get all appointments for a stylist
+  static async getStylistAppointments(stylistId: string): Promise<Appointment[]> {
+    try {
+      console.log('🔍 Fetching appointments for stylistId:', stylistId);
+      const appointmentsRef = collection(db, this.COLLECTION_NAME);
+
+      // Try multiple schemas/fields that may store stylist ownership
+      const queries = [
+        query(appointmentsRef, where('stylistId', '==', stylistId)),
+        query(appointmentsRef, where('assignedStylistId', '==', stylistId)),
+        query(appointmentsRef, where('createdBy', '==', stylistId)),
+        // Some datasets denormalize stylist IDs for array-contains queries
+        query(appointmentsRef, where('serviceStylistPairsStylistIds', 'array-contains', stylistId)),
+        // Try looking for stylist in serviceStylistPairs array
+        query(appointmentsRef, where('serviceStylistPairs', 'array-contains', stylistId)),
+      ];
+
+      console.log('🔍 Trying queries for stylistId:', stylistId);
+      const allAppointments: Appointment[] = [];
+
+      for (let i = 0; i < queries.length; i++) {
+        const q = queries[i];
+        const queryNames = ['stylistId', 'assignedStylistId', 'createdBy', 'serviceStylistPairsStylistIds', 'serviceStylistPairs'];
+        try {
+          console.log(`🔍 Executing stylist query ${i + 1} (${queryNames[i]})...`);
+          const snapshot = await getDocs(q);
+          console.log(`📊 Query ${queryNames[i]} returned`, snapshot.docs.length, 'documents');
+
+          for (const docSnapshot of snapshot.docs) {
+            try {
+              const appointmentData = docSnapshot.data() as FirestoreAppointment;
+              const appointment = await this.mapFirestoreToAppointment(appointmentData, docSnapshot.id);
+              allAppointments.push(appointment);
+            } catch (mappingError) {
+              console.error('❌ Error mapping stylist appointment:', docSnapshot.id, mappingError);
+            }
+          }
+        } catch (queryError) {
+          console.log('⚠️ Stylist query failed, trying next:', queryError);
+        }
+      }
+
+      // Fallback: scan a reasonable subset if no results yet, and filter client-side
+      if (allAppointments.length === 0) {
+        try {
+          console.log('🔄 No stylist-specific results; performing fallback scan to filter client-side');
+          const snapshot = await getDocs(appointmentsRef);
+          console.log('📊 Fallback scan size:', snapshot.size);
+          for (const docSnapshot of snapshot.docs) {
+            try {
+              const data = docSnapshot.data() as FirestoreAppointment & { stylists?: Array<{ id?: string; stylistId?: string }>; };
+
+              const hasDirectStylist = (data as any).stylistId === stylistId || (data as any).assignedStylistId === stylistId;
+
+              const hasPairStylist = Array.isArray(data.serviceStylistPairs)
+                && data.serviceStylistPairs.some((p: any) => p && (p.stylistId === stylistId || p.uid === stylistId));
+
+              const hasStylistsArray = Array.isArray((data as any).stylists)
+                && (data as any).stylists.some((s: any) => s && (s.id === stylistId || s.stylistId === stylistId));
+
+              if (hasDirectStylist || hasPairStylist || hasStylistsArray) {
+                const appointment = await this.mapFirestoreToAppointment(data, docSnapshot.id);
+                allAppointments.push(appointment);
+              }
+            } catch (mappingError) {
+              console.error('❌ Error mapping stylist appointment (fallback):', docSnapshot.id, mappingError);
+            }
+          }
+        } catch (scanError) {
+          console.log('⚠️ Fallback scan failed:', scanError);
+        }
+      }
+
+      console.log('📊 Total stylist appointments found (pre-dedupe):', allAppointments.length);
+
+      // Remove duplicates based on appointment ID
+      const uniqueAppointments = allAppointments.filter((appointment, index, self) =>
+        index === self.findIndex(a => a.id === appointment.id)
+      );
+
+      console.log('📊 Unique stylist appointments after deduplication:', uniqueAppointments.length);
+
+      // Sort client-side by date desc then time desc
+      const sortedAppointments = uniqueAppointments.sort((a, b) => {
+        const dateA = new Date(a.appointmentDate || a.date);
+        const dateB = new Date(b.appointmentDate || b.date);
+        if (dateA.getTime() !== dateB.getTime()) {
+          return dateB.getTime() - dateA.getTime();
+        }
+        const timeA = a.appointmentTime || a.startTime || '';
+        const timeB = b.appointmentTime || b.startTime || '';
+        return timeB.localeCompare(timeA);
+      });
+
+      console.log('✅ Returning', sortedAppointments.length, 'stylist appointments');
+      return sortedAppointments;
+    } catch (error) {
+      console.error('❌ Error fetching stylist appointments:', error);
+      throw new Error('Failed to fetch stylist appointments');
+    }
+  }
+
   // Get appointment by ID
   static async getAppointmentById(appointmentId: string): Promise<Appointment | null> {
     try {
@@ -214,10 +318,88 @@ export class AppointmentService {
   static async updateAppointment(appointmentId: string, updates: Partial<Appointment>): Promise<void> {
     try {
       const appointmentRef = doc(db, this.COLLECTION_NAME, appointmentId);
+      
+      // Get current appointment data before update
+      const appointmentDoc = await getDoc(appointmentRef);
+      if (!appointmentDoc.exists()) {
+        throw new Error('Appointment not found');
+      }
+      
+      const appointmentData = appointmentDoc.data() as FirestoreAppointment;
+      const oldStatus = appointmentData.status;
+      const newStatus = updates.status;
+      
+      // Update appointment
       await updateDoc(appointmentRef, {
         ...updates,
         updatedAt: Timestamp.now(),
       });
+      
+      // Send notifications if status changed to in-service or completed
+      if (newStatus && newStatus !== oldStatus && (newStatus === 'in-service' || newStatus === 'in_progress' || newStatus === 'completed')) {
+        try {
+          // Get stylist ID from serviceStylistPairs or direct stylistId
+          let stylistId = appointmentData.stylistId;
+          if (!stylistId && (appointmentData as any).serviceStylistPairs && (appointmentData as any).serviceStylistPairs.length > 0) {
+            stylistId = (appointmentData as any).serviceStylistPairs[0].stylistId;
+          }
+          
+          if (stylistId) {
+            // Get stylist information
+            const stylistDoc = await getDoc(doc(db, 'users', stylistId));
+            let stylistEmail = 'stylist@example.com';
+            let stylistName = 'Stylist';
+            
+            if (stylistDoc.exists()) {
+              const stylistData = stylistDoc.data();
+              stylistEmail = stylistData['email'] || stylistEmail;
+              stylistName = `${stylistData['firstName'] || ''} ${stylistData['lastName'] || ''}`.trim() || stylistName;
+            }
+            
+            // Get client name
+            const clientName = (appointmentData as any).clientName || 
+                              `${(appointmentData as any).clientFirstName || ''} ${(appointmentData as any).clientLastName || ''}`.trim() ||
+                              'Client';
+            
+            // Get service name
+            let serviceName = 'Service';
+            if ((appointmentData as any).services && (appointmentData as any).services.length > 0) {
+              serviceName = (appointmentData as any).services[0].name;
+            } else if (appointmentData.service) {
+              serviceName = appointmentData.service;
+            }
+            
+            // Get date and time
+            const appointmentDate = (appointmentData as any).appointmentDate || appointmentData.date || 'Unknown date';
+            const appointmentTime = (appointmentData as any).appointmentTime || appointmentData.startTime || 'Unknown time';
+            
+            // Create notification based on status
+            const isInService = newStatus === 'in-service' || newStatus === 'in_progress';
+            const notificationData = {
+              recipientId: stylistId,
+              recipientRole: 'stylist' as const,
+              type: isInService ? 'general' as const : 'appointment_confirmed' as const,
+              title: isInService ? 'Appointment In Service' : 'Appointment Completed',
+              message: isInService
+                ? `${clientName}'s ${serviceName} appointment is now in service.`
+                : `${clientName}'s ${serviceName} appointment on ${appointmentDate} at ${appointmentTime} has been completed.`,
+              data: {
+                clientName,
+                appointmentDate,
+                appointmentTime,
+                serviceName,
+                appointmentId,
+                status: newStatus,
+              },
+            };
+            
+            await NotificationService.createNotification(notificationData);
+            console.log(`✅ Notification sent for status change to ${newStatus}`);
+          }
+        } catch (notificationError) {
+          console.error('⚠️ Failed to send notification for status change:', notificationError);
+        }
+      }
     } catch (error) {
       console.error('Error updating appointment:', error);
       throw new Error('Failed to update appointment');
@@ -227,14 +409,82 @@ export class AppointmentService {
   // Cancel appointment
   static async cancelAppointment(appointmentId: string, reason: string): Promise<void> {
     try {
+      console.log('🔄 Cancelling appointment:', appointmentId);
+      
+      // Get appointment details first to notify stylist
+      const appointmentDoc = await getDoc(doc(db, this.COLLECTION_NAME, appointmentId));
+      if (!appointmentDoc.exists()) {
+        throw new Error('Appointment not found');
+      }
+      
+      const appointmentData = appointmentDoc.data() as FirestoreAppointment;
+      
+      // Update appointment status
       const appointmentRef = doc(db, this.COLLECTION_NAME, appointmentId);
       await updateDoc(appointmentRef, {
         status: 'cancelled',
         cancellationReason: reason,
         updatedAt: Timestamp.now(),
       });
+      
+      console.log('✅ Appointment cancelled');
+      
+      // Notify stylist about cancellation (Push + Email + In-app)
+      try {
+        // Get stylist ID from serviceStylistPairs or direct stylistId
+        let stylistId = appointmentData.stylistId;
+        if (!stylistId && (appointmentData as any).serviceStylistPairs && (appointmentData as any).serviceStylistPairs.length > 0) {
+          stylistId = (appointmentData as any).serviceStylistPairs[0].stylistId;
+        }
+        
+        if (stylistId) {
+          // Get stylist information from Firebase
+          const stylistDoc = await getDoc(doc(db, 'users', stylistId));
+          let stylistEmail = 'stylist@example.com';
+          let stylistName = 'Stylist';
+          
+          if (stylistDoc.exists()) {
+            const stylistData = stylistDoc.data();
+            stylistEmail = stylistData['email'] || stylistEmail;
+            stylistName = `${stylistData['firstName'] || ''} ${stylistData['lastName'] || ''}`.trim() || stylistName;
+          }
+          
+          // Get client name
+          const clientName = (appointmentData as any).clientName || 
+                            `${(appointmentData as any).clientFirstName || ''} ${(appointmentData as any).clientLastName || ''}`.trim() ||
+                            'Client';
+          
+          // Get service name
+          let serviceName = 'Service';
+          if ((appointmentData as any).services && (appointmentData as any).services.length > 0) {
+            serviceName = (appointmentData as any).services[0].name;
+          } else if (appointmentData.service) {
+            serviceName = appointmentData.service;
+          }
+          
+          // Get date and time
+          const appointmentDate = (appointmentData as any).appointmentDate || appointmentData.date || 'Unknown date';
+          const appointmentTime = (appointmentData as any).appointmentTime || appointmentData.startTime || 'Unknown time';
+          
+          // Send all notifications (Push + Email + In-app)
+          await StylistNotificationService.notifyOfCancellation({
+            stylistId,
+            stylistEmail,
+            stylistName,
+            clientName,
+            appointmentDate,
+            appointmentTime,
+            serviceName,
+          });
+          
+          console.log('✅ Stylist notified of cancellation (Push + Email + In-app)');
+        }
+      } catch (notificationError) {
+        console.error('⚠️ Failed to send notification, but appointment was cancelled:', notificationError);
+        // Don't throw error - appointment is already cancelled
+      }
     } catch (error) {
-      console.error('Error cancelling appointment:', error);
+      console.error('❌ Error cancelling appointment:', error);
       throw new Error('Failed to cancel appointment');
     }
   }
@@ -360,6 +610,104 @@ export class AppointmentService {
     });
   }
 
+  // Subscribe to real-time updates for stylist appointments
+  static subscribeToStylistAppointments(
+    stylistId: string,
+    callback: (appointments: Appointment[]) => void
+  ): () => void {
+    console.log('🔄 Setting up real-time subscription for stylistId:', stylistId);
+    const appointmentsRef = collection(db, this.COLLECTION_NAME);
+    
+    // Create a query for stylist appointments
+    // Note: This uses the primary stylistId field. If your data structure is different,
+    // you may need to adjust this query or use multiple subscriptions
+    const q = query(
+      appointmentsRef,
+      where('stylistId', '==', stylistId)
+    );
+
+    return onSnapshot(q, async (snapshot) => {
+      console.log('📡 Real-time snapshot received for stylist:', snapshot.docs.length, 'documents');
+      const appointments: Appointment[] = [];
+
+      // Process all documents from the primary query
+      for (const docSnapshot of snapshot.docs) {
+        try {
+          console.log('🔄 Processing real-time document:', docSnapshot.id);
+          const appointmentData = docSnapshot.data() as FirestoreAppointment;
+          const appointment = await this.mapFirestoreToAppointment(appointmentData, docSnapshot.id);
+          appointments.push(appointment);
+        } catch (error) {
+          console.error('❌ Error processing real-time stylist appointment:', docSnapshot.id, error);
+        }
+      }
+
+      // Also check for appointments where stylist is in serviceStylistPairs
+      // This is a fallback for appointments that may not have stylistId field
+      try {
+        const allAppointmentsQuery = query(appointmentsRef);
+        const allSnapshot = await getDocs(allAppointmentsQuery);
+        
+        for (const docSnapshot of allSnapshot.docs) {
+          // Skip if already processed
+          if (appointments.some(apt => apt.id === docSnapshot.id)) {
+            continue;
+          }
+
+          try {
+            const data = docSnapshot.data() as FirestoreAppointment & { stylists?: Array<{ id?: string; stylistId?: string }>; };
+
+            const hasDirectStylist = (data as any).assignedStylistId === stylistId;
+
+            const hasPairStylist = Array.isArray(data.serviceStylistPairs)
+              && data.serviceStylistPairs.some((p: any) => p && (p.stylistId === stylistId || p.uid === stylistId));
+
+            const hasStylistsArray = Array.isArray((data as any).stylists)
+              && (data as any).stylists.some((s: any) => s && (s.id === stylistId || s.stylistId === stylistId));
+
+            if (hasDirectStylist || hasPairStylist || hasStylistsArray) {
+              const appointment = await this.mapFirestoreToAppointment(data, docSnapshot.id);
+              appointments.push(appointment);
+            }
+          } catch (mappingError) {
+            console.error('❌ Error mapping stylist appointment (fallback):', docSnapshot.id, mappingError);
+          }
+        }
+      } catch (fallbackError) {
+        console.log('⚠️ Fallback query for stylist appointments failed:', fallbackError);
+      }
+
+      // Remove duplicates based on appointment ID
+      const uniqueAppointments = appointments.filter((appointment, index, self) =>
+        index === self.findIndex(a => a.id === appointment.id)
+      );
+
+      // Sort client-side to avoid composite index requirement
+      const sortedAppointments = uniqueAppointments.sort((a, b) => {
+        // Use new date fields with fallbacks
+        const dateA = new Date(a.appointmentDate || a.date);
+        const dateB = new Date(b.appointmentDate || b.date);
+        if (dateA.getTime() !== dateB.getTime()) {
+          return dateB.getTime() - dateA.getTime();
+        }
+        // If dates are equal, sort by time (descending)
+        const timeA = a.appointmentTime || a.startTime || '';
+        const timeB = b.appointmentTime || b.startTime || '';
+        return timeB.localeCompare(timeA);
+      });
+
+      console.log('✅ Real-time callback with', sortedAppointments.length, 'stylist appointments');
+      callback(sortedAppointments);
+    }, (error) => {
+      console.error('❌ Error in real-time stylist appointment subscription:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+    });
+  }
+
   // Helper method to map Firestore data to API format
   private static async mapFirestoreToAppointment(
     firestoreData: FirestoreAppointment, 
@@ -377,39 +725,63 @@ export class AppointmentService {
         status: firestoreData.status
       });
 
+      // Get primary stylist and service from serviceStylistPairs first
+      let primaryStylistId = '';
+      let primaryServiceId = '';
+      
+      if (firestoreData.serviceStylistPairs && firestoreData.serviceStylistPairs.length > 0) {
+        const firstPair = firestoreData.serviceStylistPairs[0];
+        primaryStylistId = firstPair.stylistId;
+        primaryServiceId = firstPair.serviceId;
+      }
+
       // Try to get stylist name from users collection using serviceStylistPairs
       let stylistName = 'Stylist Name';
       let stylistFirstName = 'Stylist';
       let stylistLastName = 'Name';
       
-      if (firestoreData.serviceStylistPairs && firestoreData.serviceStylistPairs.length > 0) {
-        const firstPair = firestoreData.serviceStylistPairs[0];
-        if (firstPair.stylistId) {
-          try {
-            // Fetch from users collection using the stylistId (which is the uid)
-            const userDoc = await getDoc(doc(db, 'users', firstPair.stylistId));
-            if (userDoc.exists()) {
-              const userData = userDoc.data();
-              stylistFirstName = userData.firstName || 'Stylist';
-              stylistLastName = userData.lastName || 'Name';
-              stylistName = `${stylistFirstName} ${stylistLastName}`;
-              console.log('✅ Found stylist name from users collection:', stylistName);
-            }
-          } catch (error) {
-            console.log('⚠️ Could not fetch stylist name from users collection:', error);
+      if (primaryStylistId) {
+        try {
+          // Fetch from users collection using the stylistId (which is the uid)
+          const userDoc = await getDoc(doc(db, 'users', primaryStylistId));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            stylistFirstName = userData.firstName || 'Stylist';
+            stylistLastName = userData.lastName || 'Name';
+            stylistName = `${stylistFirstName} ${stylistLastName}`;
+            console.log('✅ Found stylist name from users collection:', stylistName);
           }
+        } catch (error) {
+          console.log('⚠️ Could not fetch stylist name from users collection:', error);
         }
       }
       
-      // For now, skip fetching other related data to avoid errors
+      // Fetch service data
       let serviceData = null;
-      let stylistData = null;
-      let branchData = null;
+      if (primaryServiceId) {
+        try {
+          serviceData = await this.getServiceById(primaryServiceId);
+          console.log('✅ Found service:', serviceData?.name, 'Price:', serviceData?.price);
+        } catch (error) {
+          console.log('⚠️ Could not fetch service:', error);
+        }
+      }
       
-      console.log('⚠️ Skipping other related data fetch for now to focus on basic appointment display');
+      // Fetch branch data
+      let branchData = null;
+      if (firestoreData.branchId) {
+        try {
+          branchData = await this.getBranchById(firestoreData.branchId);
+          console.log('✅ Found branch:', branchData?.name);
+        } catch (error) {
+          console.log('⚠️ Could not fetch branch:', error);
+        }
+      }
+      
+      let stylistData = null;
 
       console.log('🔄 Fetched related data:', {
-        service: serviceData ? { id: serviceData.id, name: serviceData.name } : null,
+        service: serviceData ? { id: serviceData.id, name: serviceData.name, price: serviceData.price, duration: serviceData.duration } : null,
         stylist: stylistData ? { id: stylistData.id, name: `${stylistData.firstName} ${stylistData.lastName}` } : null,
         branch: branchData ? { id: branchData.id, name: branchData.name } : null
       });
@@ -422,20 +794,31 @@ export class AppointmentService {
       const firstService = firestoreData.services && firestoreData.services.length > 0 ? firestoreData.services[0] : null;
       const firstStylist = firestoreData.stylists && firestoreData.stylists.length > 0 ? firestoreData.stylists[0] : null;
       
-      // Calculate total cost from services array
-      const totalCost = firestoreData.services ? 
-        firestoreData.services.reduce((sum, service) => sum + (service.price || 0), 0) : 
-        (firestoreData.totalCost || firestoreData.price || 0);
-
-      // Get primary stylist and service from serviceStylistPairs
-      let primaryStylistId = '';
-      let primaryServiceId = '';
-      
-      if (firestoreData.serviceStylistPairs && firestoreData.serviceStylistPairs.length > 0) {
-        const firstPair = firestoreData.serviceStylistPairs[0];
-        primaryStylistId = firstPair.stylistId;
-        primaryServiceId = firstPair.serviceId;
+      // Calculate total cost from services array or fetched service data
+      let totalCost = 0;
+      if (firestoreData.services && firestoreData.services.length > 0) {
+        // Use services array if available (receptionist structure)
+        totalCost = firestoreData.services.reduce((sum: number, service: any) => sum + (service.price || service.servicePrice || 0), 0);
+        console.log('💰 Price from services array:', totalCost);
+      } else if ((firestoreData as any).serviceStylistPairs && (firestoreData as any).serviceStylistPairs.length > 0) {
+        // Use serviceStylistPairs array (new structure)
+        totalCost = (firestoreData as any).serviceStylistPairs.reduce((sum: number, pair: any) => sum + (pair.servicePrice || 0), 0);
+        console.log('💰 Price from serviceStylistPairs:', totalCost);
+      } else if ((firestoreData as any).totalPrice) {
+        // Use totalPrice field
+        totalCost = (firestoreData as any).totalPrice;
+        console.log('💰 Price from totalPrice field:', totalCost);
+      } else if (serviceData?.price) {
+        // Use fetched service price if available
+        totalCost = serviceData.price;
+        console.log('💰 Price from fetched service:', totalCost);
+      } else {
+        // Fallback to stored price
+        totalCost = firestoreData.totalCost || firestoreData.price || 0;
+        console.log('💰 Price from stored data:', totalCost, { totalCost: firestoreData.totalCost, price: firestoreData.price });
       }
+      
+      console.log('💰 Final calculated price:', totalCost, 'for appointment:', docId);
 
       return {
         id: docId,
@@ -448,7 +831,7 @@ export class AppointmentService {
         startTime: appointmentTime,
         appointmentTime: firestoreData.appointmentTime,
         endTime: firestoreData.endTime || '',
-        duration: firstService?.duration || 60, // Default duration
+        duration: serviceData?.duration || firstService?.duration || 60, // Use service duration if available
         status: firestoreData.status,
         notes: firestoreData.notes || '',
         clientNotes: firestoreData.clientNotes || '',

@@ -7,11 +7,16 @@ import {
   TouchableOpacity,
   Platform,
   Alert,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc, getDocs, collection, query, where } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../../config/firebase';
+import { doc, getDoc, getDocs, collection, query, where, updateDoc, onSnapshot } from 'firebase/firestore';
+import { db, COLLECTIONS, storage } from '../../config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import {
   StylistSection,
@@ -23,36 +28,42 @@ import { useAuth } from '../../hooks/redux';
 export default function StylistProfileScreen() {
   const navigation = useNavigation();
   const scrollViewRef = useRef<ScrollView>(null);
-  const { user, logout } = useAuth();
+  const { user, logout, updateUserProfile } = useAuth();
   const [branchName, setBranchName] = useState<string>('Loading...');
   const [services, setServices] = useState<string[]>([]);
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
+  const [uploadingImage, setUploadingImage] = useState<boolean>(false);
 
-  // Fetch branch name from Firebase
+  // Set up real-time subscription for branch name
   useEffect(() => {
-    const fetchBranchName = async () => {
-      if (!user?.branchId) {
-        setBranchName('Not assigned');
-        return;
-      }
+    if (!user?.branchId) {
+      setBranchName('Not assigned');
+      return;
+    }
 
-      try {
-        const branchDoc = await getDoc(doc(db, COLLECTIONS.BRANCHES, user.branchId));
-        if (branchDoc.exists()) {
-          const branchData = branchDoc.data();
-          setBranchName(branchData['name'] || 'Unknown Branch');
-          console.log('✅ Branch loaded:', branchData['name']);
-        } else {
-          setBranchName('Branch not found');
-          console.log('⚠️ Branch document not found for ID:', user.branchId);
-        }
-      } catch (error) {
-        console.error('❌ Error fetching branch:', error);
-        setBranchName('Error loading branch');
+    console.log('🔄 Setting up real-time subscription for branch:', user.branchId);
+    const branchDocRef = doc(db, COLLECTIONS.BRANCHES, user.branchId);
+
+    // Set up real-time listener
+    const unsubscribe = onSnapshot(branchDocRef, (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const branchData = docSnapshot.data();
+        setBranchName(branchData['name'] || 'Unknown Branch');
+        console.log('✅ Real-time branch update:', branchData['name']);
+      } else {
+        setBranchName('Branch not found');
+        console.log('⚠️ Branch document not found for ID:', user.branchId);
       }
+    }, (error) => {
+      console.error('❌ Real-time branch listener error:', error);
+      setBranchName('Error loading branch');
+    });
+
+    // Cleanup listener on unmount
+    return () => {
+      console.log('🧹 Cleaning up branch subscription');
+      unsubscribe();
     };
-
-    fetchBranchName();
   }, [user?.branchId]);
 
   // Fetch stylist services from Firebase
@@ -135,18 +146,120 @@ export default function StylistProfileScreen() {
     yearsOfExperience: (user as any)?.experience || 0,
     totalClients: (user as any)?.totalClients || 0,
     rating: (user as any)?.rating || 0,
-    joinedDate: user?.memberSince ? new Date(user.memberSince).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Recently',
+    joinedDate: user?.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Recently',
   };
 
   console.log('👤 Stylist Profile Data:', {
     userId: user?.id,
     name: stylistData.name,
     email: stylistData.email,
+    phone: user?.phone,
+    phoneFromData: stylistData.phone,
     branchId: user?.branchId,
     branchName: branchName,
     userType: user?.userType,
     roles: user?.roles
   });
+
+  const handleUploadProfileImage = async () => {
+    try {
+      // Show options to user
+      Alert.alert(
+        'Upload Profile Photo',
+        'Choose an option',
+        [
+          {
+            text: 'Take Photo',
+            onPress: () => handleImagePick('camera'),
+          },
+          {
+            text: 'Choose from Gallery',
+            onPress: () => handleImagePick('gallery'),
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+        ],
+        { cancelable: true }
+      );
+    } catch (error) {
+      console.error('Error showing image options:', error);
+      Alert.alert('Error', 'Failed to show image options. Please try again.');
+    }
+  };
+
+  const handleImagePick = async (source: 'camera' | 'gallery') => {
+    try {
+      let result;
+
+      if (source === 'camera') {
+        // Request camera permission
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'We need camera permissions to take a photo.');
+          return;
+        }
+
+        // Launch camera
+        result = await ImagePicker.launchCameraAsync({
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.8,
+        });
+      } else {
+        // Request gallery permission
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'We need gallery permissions to choose a photo.');
+          return;
+        }
+
+        // Launch gallery
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.8,
+        });
+      }
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      setUploadingImage(true);
+      const imageUri = result.assets[0].uri;
+
+      // Upload to Firebase Storage
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+      const filename = `profile_images/${user?.uid}_${Date.now()}.jpg`;
+      const storageRef = ref(storage, filename);
+      
+      await uploadBytes(storageRef, blob);
+      const downloadURL = await getDownloadURL(storageRef);
+
+      // Update Firestore
+      if (user?.id) {
+        await updateDoc(doc(db, COLLECTIONS.USERS, user.id), {
+          profileImage: downloadURL,
+        });
+
+        // Update Redux and AsyncStorage
+        const updatedUser = { ...user, profileImage: downloadURL };
+        updateUserProfile(updatedUser);
+        await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+
+        Alert.alert('Success', 'Profile image updated successfully!');
+      }
+    } catch (error) {
+      console.error('Error uploading profile image:', error);
+      Alert.alert('Error', 'Failed to upload profile image. Please try again.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const handleEditProfile = () => {
     (navigation as any).navigate('StylistEditProfile');
@@ -218,11 +331,6 @@ export default function StylistProfileScreen() {
   if (Platform.OS === 'web') {
     return (
       <View style={styles.webContainer}>
-        {/* Profile Header */}
-        <View style={styles.profileHeader}>
-          <Text style={styles.webTitle}>My Profile</Text>
-        </View>
-
         {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.avatarContainer}>
@@ -232,20 +340,7 @@ export default function StylistProfileScreen() {
           </View>
           
           <Text style={styles.profileName}>{stylistData.name}</Text>
-          
-          {/* Services Tags */}
-          {loadingServices ? (
-            <Text style={styles.servicesLoading}>Loading services...</Text>
-          ) : services.length > 0 ? (
-            <View style={styles.servicesContainer}>
-              {services.map((service, index) => (
-                <View key={index} style={styles.serviceTag}>
-                  <Ionicons name="checkmark-circle" size={14} color="#160B53" />
-                  <Text style={styles.serviceTagText}>{service}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
+          <Text style={styles.profileRole}>Stylist</Text>
           
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
@@ -338,44 +433,38 @@ export default function StylistProfileScreen() {
 
   // For mobile, use ScreenWrapper
   return (
-    <ScreenWrapper title="Profile" showBackButton userType="stylist">
+    <ScreenWrapper title="Profile" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Profile Header */}
-        <StylistSection isTitle>
-          <StylistPageTitle title="My Profile" />
-        </StylistSection>
-
         {/* Profile Header Card */}
-        <StylistSection>
+        <StylistSection style={styles.profileSection}>
           <View style={styles.profileCard}>
             <View style={styles.profileHeader}>
               <View style={styles.avatarContainer}>
                 <View style={styles.avatar}>
                   <View style={styles.avatarGradient}>
-                    <Ionicons name="person" size={40} color="#FFFFFF" />
+                    {user?.profileImage ? (
+                      <Image source={{ uri: user.profileImage }} style={styles.profileImage} />
+                    ) : (
+                      <Ionicons name="person" size={40} color="#FFFFFF" />
+                    )}
                   </View>
                 </View>
-                <TouchableOpacity style={styles.editAvatarButton}>
-                  <Ionicons name="camera" size={14} color="#FFFFFF" />
+                <TouchableOpacity 
+                  style={styles.editAvatarButton}
+                  onPress={handleUploadProfileImage}
+                  disabled={uploadingImage}
+                >
+                  {uploadingImage ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="camera" size={14} color="#FFFFFF" />
+                  )}
                 </TouchableOpacity>
               </View>
               
               <View style={styles.profileInfo}>
                 <Text style={styles.profileName}>{stylistData.name}</Text>
-                
-                {/* Services Tags */}
-                {loadingServices ? (
-                  <Text style={styles.servicesLoading}>Loading services...</Text>
-                ) : services.length > 0 ? (
-                  <View style={styles.servicesContainer}>
-                    {services.map((service, index) => (
-                      <View key={index} style={styles.serviceTag}>
-                        <Ionicons name="checkmark-circle" size={12} color="#160B53" />
-                        <Text style={styles.serviceTagText}>{service}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
+                <Text style={styles.profileRole}>Stylist</Text>
               </View>
             </View>
             
@@ -455,6 +544,58 @@ export default function StylistProfileScreen() {
           </View>
         </StylistSection>
 
+        {/* Quick Access Section */}
+        <StylistSection>
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="grid" size={20} color="#160B53" />
+              <Text style={styles.sectionTitle}>Quick Access</Text>
+            </View>
+            
+            <TouchableOpacity
+              style={styles.optionCard}
+              onPress={() => (navigation as any).navigate('StylistClients')}
+            >
+              <View style={styles.optionLeft}>
+                <View style={styles.iconContainer}>
+                  <Ionicons 
+                    name="people" 
+                    size={22} 
+                    color={APP_CONFIG.primaryColor} 
+                  />
+                </View>
+                <Text style={styles.optionTitle}>My Clients</Text>
+              </View>
+              <Ionicons 
+                name="chevron-forward" 
+                size={20} 
+                color="#9CA3AF" 
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.optionCard}
+              onPress={() => (navigation as any).navigate('StylistPortfolio')}
+            >
+              <View style={styles.optionLeft}>
+                <View style={styles.iconContainer}>
+                  <Ionicons 
+                    name="images" 
+                    size={22} 
+                    color={APP_CONFIG.primaryColor} 
+                  />
+                </View>
+                <Text style={styles.optionTitle}>My Portfolios</Text>
+              </View>
+              <Ionicons 
+                name="chevron-forward" 
+                size={20} 
+                color="#9CA3AF" 
+              />
+            </TouchableOpacity>
+          </View>
+        </StylistSection>
+
         {/* Settings Section */}
         <StylistSection>
           <View style={styles.sectionCard}>
@@ -507,6 +648,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
+  profileSection: {
+    marginTop: 16,
+  },
   webContainer: {
     flex: 1,
     backgroundColor: '#F9FAFB',
@@ -538,6 +682,7 @@ const styles = StyleSheet.create({
   },
   profileInfo: {
     justifyContent: 'center',
+    flex: 1,
   },
   avatarContainer: {
     position: 'relative',
@@ -580,6 +725,12 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.h3,
     color: '#160B53',
     fontFamily: FONTS.bold,
+    marginBottom: SPACING.xs,
+  },
+  profileRole: {
+    fontSize: TYPOGRAPHY.body,
+    color: '#666',
+    fontFamily: FONTS.medium,
     marginBottom: SPACING.xs,
   },
   specializationBadge: {
@@ -717,6 +868,11 @@ const styles = StyleSheet.create({
     color: '#160B53',
     fontFamily: FONTS.semiBold,
   },
+  profileImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: Platform.OS === 'web' ? 40 : 35,
+  },
   optionCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -760,6 +916,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: SPACING.xs,
     marginTop: SPACING.xs,
+    maxWidth: '100%',
   },
   serviceTag: {
     flexDirection: 'row',
@@ -771,10 +928,17 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: '#C7D2FE',
+    flexShrink: 1,
+    maxWidth: '100%',
   },
   serviceTagText: {
     fontSize: TYPOGRAPHY.caption,
     color: '#160B53',
     fontFamily: FONTS.semiBold,
+    flexShrink: 1,
+    // The following properties help prevent overflow on web while allowing wrapping
+    // They are ignored on native platforms
+    wordBreak: 'break-word' as any,
+    overflowWrap: 'anywhere' as any,
   },
 });

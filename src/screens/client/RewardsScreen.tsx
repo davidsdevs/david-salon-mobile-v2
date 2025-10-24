@@ -12,7 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
-import useAuth from '../../hooks/useAuth';
+import { useAuth } from '../../hooks/redux';
 import { APP_CONFIG, FONTS } from '../../constants';
 import { Reward, Promotion } from '../../types';
 

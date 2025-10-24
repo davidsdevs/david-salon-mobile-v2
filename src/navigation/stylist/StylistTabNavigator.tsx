@@ -9,9 +9,9 @@ import { StylistTabParamList } from '../../types';
 // Import stylist screens
 import StylistDashboardScreen from '../../screens/stylist/StylistDashboardScreen';
 import StylistAppointmentsScreen from '../../screens/stylist/StylistAppointmentsScreen';
-import StylistClientsScreen from '../../screens/stylist/StylistClientsScreen';
 import StylistScheduleScreen from '../../screens/stylist/StylistScheduleScreen';
 import StylistPortfolioScreen from '../../screens/stylist/StylistPortfolioScreen';
+import StylistProfileScreen from '../../screens/stylist/StylistProfileScreen';
 
 const Tab = createBottomTabNavigator<StylistTabParamList>();
 
@@ -33,9 +33,9 @@ const TabIcon = ({
     const iconMap = {
       home: focused ? 'home' : 'home-outline',
       calendar: focused ? 'calendar' : 'calendar-outline',
-      people: focused ? 'people' : 'people-outline',
-      time: focused ? 'time' : 'time-outline',
+      schedule: focused ? 'time' : 'time-outline',
       portfolio: focused ? 'images' : 'images-outline',
+      profile: focused ? 'person' : 'person-outline',
     };
     return iconMap[iconName as keyof typeof iconMap] || 'home-outline';
   };
@@ -140,13 +140,13 @@ export default function StylistTabNavigator() {
         }}
       />
       <Tab.Screen 
-        name="StylistClients" 
-        component={StylistClientsScreen}
+        name="StylistSchedule" 
+        component={StylistScheduleScreen}
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon 
               focused={focused} 
-              iconName="people" 
+              iconName="schedule" 
             />
           ),
         }}
@@ -164,18 +164,6 @@ export default function StylistTabNavigator() {
         }}
       />
       <Tab.Screen 
-        name="StylistSchedule" 
-        component={StylistScheduleScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon 
-              focused={focused} 
-              iconName="time" 
-            />
-          ),
-        }}
-      />
-      <Tab.Screen 
         name="StylistPortfolio" 
         component={StylistPortfolioScreen}
         options={{
@@ -183,6 +171,18 @@ export default function StylistTabNavigator() {
             <TabIcon 
               focused={focused} 
               iconName="portfolio" 
+            />
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="StylistProfile" 
+        component={StylistProfileScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon 
+              focused={focused} 
+              iconName="profile" 
             />
           ),
         }}

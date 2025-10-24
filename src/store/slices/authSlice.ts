@@ -35,7 +35,6 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  isWaitingForRoleSelection: boolean;
 }
 
 const initialState: AuthState = {
@@ -45,7 +44,6 @@ const initialState: AuthState = {
   isAuthenticated: false,
   isLoading: false,
   error: null,
-  isWaitingForRoleSelection: false,
 };
 
 // Async thunks
@@ -281,21 +279,6 @@ const authSlice = createSlice({
         state.user = { ...state.user, ...action.payload };
       }
     },
-    setSelectedRole: (state, action: PayloadAction<'client' | 'stylist'>) => {
-      if (state.user) {
-        // Update the user's current role selection
-        state.user = { 
-          ...state.user, 
-          selectedRole: action.payload,
-          userType: action.payload // Also update userType for backward compatibility
-        };
-        // Clear the waiting state since role has been selected
-        state.isWaitingForRoleSelection = false;
-      }
-    },
-    setWaitingForRoleSelection: (state, action: PayloadAction<boolean>) => {
-      state.isWaitingForRoleSelection = action.payload;
-    },
   },
   extraReducers: (builder) => {
     builder
@@ -394,5 +377,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearError, updateUser, setSelectedRole, setWaitingForRoleSelection } = authSlice.actions;
+export const { clearError, updateUser } = authSlice.actions;
 export default authSlice.reducer;

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../config/firebase';
 import { useAuth } from '../../hooks/redux';
 import ScreenWrapper from '../../components/ScreenWrapper';
@@ -60,32 +60,50 @@ export default function StylistClientsScreen() {
     colorFormula?: string;
   }
 
-  // Fetch clients from Firebase
+  // Set up real-time subscription for clients data
   useEffect(() => {
-    const fetchClients = async () => {
-      if (!user?.id) {
-        setLoading(false);
-        return;
-      }
+    if (!user?.id && !user?.uid) {
+      setLoading(false);
+      return;
+    }
 
+    setLoading(true);
+    const stylistId = user.uid || user.id;
+    console.log('🔄 Setting up real-time subscription for clients of stylist:', stylistId);
+
+    const appointmentsRef = collection(db, COLLECTIONS.APPOINTMENTS);
+    
+    // Set up real-time listener for appointments
+    const unsubscribe = onSnapshot(appointmentsRef, async (querySnapshot) => {
       try {
-        setLoading(true);
-        console.log('📋 Fetching clients for stylist:', user.id);
+        console.log('📡 Real-time update received for clients:', querySnapshot.size, 'appointments');
+        
+        const allAppointments: any[] = [];
+        
+        querySnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          const hasStylist = data.stylistId === stylistId || 
+                            data.assignedStylistId === stylistId ||
+                            (data.serviceStylistPairs && data.serviceStylistPairs.some((p: any) => p.stylistId === stylistId));
+          if (hasStylist) {
+            allAppointments.push({ id: doc.id, ...data });
+          }
+        });
 
-        // Get all appointments for this stylist
-        const appointmentsRef = collection(db, COLLECTIONS.APPOINTMENTS);
-        const q = query(
-          appointmentsRef,
-          where('stylistId', '==', user.id)
+        console.log('📊 Total appointments found:', allAppointments.length);
+
+        // Remove duplicates
+        const uniqueAppointments = allAppointments.filter((apt, index, self) => 
+          index === self.findIndex(a => a.id === apt.id)
         );
 
-        const querySnapshot = await getDocs(q);
         const clientMap = new Map();
 
         // Process each appointment to build client list
-        for (const appointmentDoc of querySnapshot.docs) {
-          const appointmentData = appointmentDoc.data();
-          const clientId = appointmentData['clientId'];
+        for (const appointmentData of uniqueAppointments) {
+          const clientId = appointmentData.clientId;
+
+          if (!clientId) continue;
 
           if (!clientMap.has(clientId)) {
             // Fetch client details
@@ -93,38 +111,84 @@ export default function StylistClientsScreen() {
             if (clientDoc.exists()) {
               const clientData = clientDoc.data();
               
+              // Count appointments for this client with this stylist
+              const clientAppointments = uniqueAppointments.filter(apt => 
+                apt.clientId === clientId && apt.status !== 'cancelled'
+              );
+              
+              // Determine client type based on appointment count
+              let clientType: 'X - New Client' | 'R - Regular' | 'TR - Transfer' = 'R - Regular';
+              if (clientAppointments.length === 1) {
+                clientType = 'X - New Client';
+              } else if (clientAppointments.length >= 2) {
+                clientType = 'R - Regular';
+              }
+              
+              // Check if client has clientType field in their data
+              if (clientData.clientType) {
+                if (clientData.clientType === 'new') clientType = 'X - New Client';
+                else if (clientData.clientType === 'regular') clientType = 'R - Regular';
+                else if (clientData.clientType === 'transfer') clientType = 'TR - Transfer';
+              }
+              
+              // Calculate total spent
+              const totalSpent = clientAppointments.reduce((sum, apt) => {
+                return sum + (apt.price || apt.finalPrice || 0);
+              }, 0);
+              
+              // Get last visit date
+              const sortedAppointments = clientAppointments
+                .filter(apt => apt.appointmentDate || apt.date)
+                .sort((a, b) => {
+                  const dateA = new Date(a.appointmentDate || a.date);
+                  const dateB = new Date(b.appointmentDate || b.date);
+                  return dateB.getTime() - dateA.getTime();
+                });
+              
+              const lastVisit = sortedAppointments.length > 0 
+                ? new Date(sortedAppointments[0].appointmentDate || sortedAppointments[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                : 'N/A';
+              
               clientMap.set(clientId, {
                 id: clientId,
-                name: `${clientData['firstName']} ${clientData['lastName']}`,
+                name: `${clientData.firstName || ''} ${clientData.lastName || ''}`.trim() || 'Unknown Client',
                 service: 'Various Services',
                 duration: '1-3 hours',
-                type: 'R - Regular',
-                notes: '',
-                phone: clientData['phone'] || 'N/A',
-                email: clientData['email'] || 'N/A',
-                memberSince: clientData['memberSince'] ? new Date(clientData['memberSince'].toDate()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A',
-                totalVisits: 0,
-                lastVisit: 'N/A',
-                totalSpent: '₱0',
-                allergies: 'None',
+                type: clientType,
+                notes: clientData.notes || '',
+                phone: clientData.phone || 'N/A',
+                email: clientData.email || 'N/A',
+                memberSince: clientData.memberSince?.toDate ? new Date(clientData.memberSince.toDate()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A',
+                totalVisits: clientAppointments.length,
+                lastVisit: lastVisit,
+                totalSpent: `₱${totalSpent.toFixed(2)}`,
+                allergies: clientData.allergies || 'None',
+                colorFormula: clientData.colorFormula || '',
               });
             }
           }
         }
 
         const clientsList = Array.from(clientMap.values());
-        console.log('✅ Fetched clients:', clientsList.length);
+        console.log('✅ Real-time clients update:', clientsList.length);
         setClients(clientsList);
+        setLoading(false);
       } catch (error) {
-        console.error('❌ Error fetching clients:', error);
+        console.error('❌ Error processing real-time clients update:', error);
         setClients([]);
-      } finally {
         setLoading(false);
       }
-    };
+    }, (error) => {
+      console.error('❌ Real-time clients listener error:', error);
+      setLoading(false);
+    });
 
-    fetchClients();
-  }, [user?.id]);
+    // Cleanup listener on unmount
+    return () => {
+      console.log('🧹 Cleaning up clients subscription');
+      unsubscribe();
+    };
+  }, [user?.id, user?.uid]);
 
   const filterOptions = ['All Clients', 'X - New Client', 'R - Regular', 'TR - Transfer'];
 
@@ -155,10 +219,9 @@ export default function StylistClientsScreen() {
   if (Platform.OS === 'web') {
     return (
       <View style={styles.webContainer}>
-        {/* Client Management Header */}
+        {/* Search Header */}
         <StylistSection isTitle>
           <View style={styles.headerRow}>
-            <StylistPageTitle title="Client Management" />
             <StylistSearchBar
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -248,13 +311,8 @@ export default function StylistClientsScreen() {
   return (
     <ScreenWrapper title="Clients" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Page Title */}
-        <StylistSection isTitle>
-          <StylistPageTitle title="Client Management" />
-        </StylistSection>
-
         {/* Search and Filters */}
-        <StylistSection>
+        <StylistSection style={styles.searchSection}>
           <StylistSearchBar
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -344,6 +402,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  searchSection: {
+    marginTop: 16,
   },
   webContainer: {
     flex: 1,

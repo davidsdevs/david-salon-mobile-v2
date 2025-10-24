@@ -5,7 +5,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider, useSelector, useDispatch } from 'react-redux';
-import { AppState, Platform, View, Text } from 'react-native';
+import { AppState, Platform, View, Text, Image } from 'react-native';
 import { BookingProvider } from './src/context/BookingContext';
 
 // Import navigation and screens
@@ -15,6 +15,9 @@ import { store } from './src/store';
 import { STORAGE_KEYS } from './src/constants';
 import { RootState } from './src/store';
 import { loadStoredAuth, logoutUser } from './src/store/slices/authSlice';
+import { PushNotificationService } from './src/services/pushNotificationService';
+import { EmailNotificationService } from './src/services/emailNotificationService';
+import * as Notifications from 'expo-notifications';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -27,10 +30,10 @@ function AppContent() {
   const [userType, setUserType] = useState<'client' | 'stylist'>('client');
   
   // Get auth state from Redux
-  const { isAuthenticated, user, isLoading: authLoading, isWaitingForRoleSelection } = useSelector((state: RootState) => state.auth);
+  const { isAuthenticated, user, isLoading: authLoading } = useSelector((state: RootState) => state.auth);
   
-  // Use Redux auth state for login status - but don't navigate if waiting for role selection
-  const isLoggedIn = isAuthenticated && !isWaitingForRoleSelection;
+  // Use Redux auth state for login status
+  const isLoggedIn = isAuthenticated;
   
   // Debug Redux auth state changes
   useEffect(() => {
@@ -58,32 +61,18 @@ function AppContent() {
     });
     
     if (user) {
-      // Check if user has a selected role (from role selection modal)
-      const selectedRole = (user as any)?.selectedRole;
-      if (selectedRole && ['client', 'stylist'].includes(selectedRole)) {
-        console.log('🔍 User has selected role:', selectedRole);
-        setUserType(selectedRole as 'client' | 'stylist');
-        return;
-      }
-
       // Check if user has roles array
       const userRoles = (user as any)?.roles;
       if (userRoles && Array.isArray(userRoles)) {
         const validRoles = userRoles.filter(role => ['client', 'stylist'].includes(role));
         
-        if (validRoles.length > 1) {
-          // User has multiple roles - this should be handled by the role selection modal
-          // For now, default to the first valid role
+        if (validRoles.length > 0) {
+          // Use the first valid role
           const newUserType = validRoles[0] as 'client' | 'stylist';
-          console.log('🔍 Multiple roles detected, defaulting to:', newUserType);
-          setUserType(newUserType);
-        } else if (validRoles.length === 1) {
-          // User has single role
-          const newUserType = validRoles[0] as 'client' | 'stylist';
-          console.log('🔍 Single role, setting userType to:', newUserType);
+          console.log('🔍 Setting userType to:', newUserType);
           setUserType(newUserType);
         } else {
-          // No valid roles
+          // No valid roles, logout user
           console.log('🔍 No valid roles, logging out user');
           dispatch(logoutUser());
           setUserType('client');
@@ -134,7 +123,60 @@ function AppContent() {
     checkOnboardingStatus();
     // Load stored authentication on app startup
     dispatch(loadStoredAuth());
+    
+    // Initialize notification services
+    initializeNotifications();
   }, [dispatch]);
+
+  // Initialize push notifications and email service
+  const initializeNotifications = async () => {
+    try {
+      console.log('📬 Initializing notification services...');
+      
+      // Initialize email service
+      EmailNotificationService.initialize();
+      
+      // Register for push notifications
+      const token = await PushNotificationService.registerForPushNotifications();
+      if (token && user?.id) {
+        console.log('✅ Push notification token obtained:', token);
+        // Save token to user profile in Firebase
+        await PushNotificationService.savePushToken(user.id, token);
+      }
+      
+      // Listen for notifications while app is open
+      const notificationListener = PushNotificationService.addNotificationReceivedListener(
+        (notification) => {
+          console.log('📬 Notification received:', notification);
+          // You can show an in-app alert or update UI here
+        }
+      );
+      
+      // Listen for notification taps
+      const responseListener = PushNotificationService.addNotificationResponseReceivedListener(
+        (response) => {
+          console.log('👆 Notification tapped:', response);
+          const data = response.notification.request.content.data;
+          
+          // Handle navigation based on notification type
+          if (data['type'] === 'appointment_cancelled' || 
+              data['type'] === 'appointment_confirmed' || 
+              data['type'] === 'appointment_rescheduled') {
+            // Navigate to appointments screen
+            console.log('Navigate to appointments for:', data['type']);
+          }
+        }
+      );
+      
+      // Clean up listeners on unmount
+      return () => {
+        notificationListener.remove();
+        responseListener.remove();
+      };
+    } catch (error) {
+      console.error('❌ Error initializing notifications:', error);
+    }
+  };
 
   // Listen for app state changes to re-check onboarding status and auth
   useEffect(() => {
@@ -149,6 +191,14 @@ function AppContent() {
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription?.remove();
   }, [dispatch]);
+
+  // Set up notification badge count (for stylists)
+  useEffect(() => {
+    if (isAuthenticated && userType === 'stylist') {
+      // Clear badge when app is opened
+      Notifications.setBadgeCountAsync(0);
+    }
+  }, [isAuthenticated, userType]);
 
   // Periodically check onboarding status and auth (for web compatibility)
   useEffect(() => {
@@ -231,8 +281,50 @@ function AppContent() {
   if (!fontsLoaded || isLoading) {
     console.log('🔍 App is loading...', { fontsLoaded, isLoading });
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
-        <Text style={{ fontSize: 18, color: '#000000' }}>Loading fonts...</Text>
+      <View style={{ 
+        flex: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        backgroundColor: '#FFFFFF',
+        paddingHorizontal: 40
+      }}>
+        {/* Logo */}
+        <Image 
+          source={require('./assets/logo.png')} 
+          style={{ 
+            width: 200, 
+            height: 100, 
+            marginBottom: 40,
+            resizeMode: 'contain'
+          }}
+        />
+        
+        {/* Loading Text */}
+        <Text style={{ 
+          fontSize: 18, 
+          color: '#160B53',
+          fontFamily: 'Poppins_500Medium',
+          textAlign: 'center',
+          marginBottom: 20
+        }}>
+          Loading David's Salon...
+        </Text>
+        
+        {/* Loading Indicator */}
+        <View style={{
+          width: '80%',
+          height: 4,
+          backgroundColor: '#E5E5E5',
+          borderRadius: 2,
+          overflow: 'hidden'
+        }}>
+          <View style={{
+            width: '100%',
+            height: '100%',
+            backgroundColor: '#160B53',
+            borderRadius: 2
+          }} />
+        </View>
       </View>
     );
   }

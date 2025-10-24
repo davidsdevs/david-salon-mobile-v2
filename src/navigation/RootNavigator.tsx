@@ -15,6 +15,7 @@ import BookingNavigator from './client/BookingNavigator';
 import NotificationsScreen from '../screens/client/NotificationsScreen';
 import StylistNotificationsScreen from '../screens/stylist/StylistNotificationsScreen';
 import StylistClientDetailsScreen from '../screens/stylist/StylistClientDetailsScreen';
+import StylistClientsScreen from '../screens/stylist/StylistClientsScreen';
 import StylistProfileScreen from '../screens/stylist/StylistProfileScreen';
 import StylistEditProfileScreen from '../screens/stylist/StylistEditProfileScreen';
 import StylistChangePasswordScreen from '../screens/stylist/StylistChangePasswordScreen';
@@ -89,6 +90,7 @@ export default function RootNavigator({ isOnboardingComplete, isLoggedIn, userTy
         <Stack.Screen name="StylistNotifications" component={StylistNotificationsScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="StylistProfile" component={StylistProfileScreen} />
+        <Stack.Screen name="StylistClients" component={StylistClientsScreen} />
         <Stack.Screen name="StylistEditProfile" component={StylistEditProfileScreen} />
         <Stack.Screen name="StylistChangePassword" component={StylistChangePasswordScreen} />
         <Stack.Screen name="StylistClientDetails" component={StylistClientDetailsScreen} />

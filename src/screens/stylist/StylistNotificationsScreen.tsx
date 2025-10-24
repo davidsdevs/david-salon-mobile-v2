@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, where, orderBy, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, onSnapshot } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../config/firebase';
 import { useAuth } from '../../hooks/redux';
 import ScreenWrapper from '../../components/ScreenWrapper';
@@ -45,26 +45,28 @@ export default function StylistNotificationsScreen() {
     }, [])
   );
 
-  // Fetch notifications from Firebase
+  // Fetch notifications from Firebase with real-time updates
   useEffect(() => {
-    const fetchNotifications = async () => {
-      if (!user?.id) {
-        setLoading(false);
-        return;
-      }
+    if (!user?.id && !user?.uid) {
+      setLoading(false);
+      return;
+    }
 
+    setLoading(true);
+    const userId = user.uid || user.id;
+    console.log('🔔 Setting up real-time listener for notifications:', userId, '(uid:', user.uid, 'id:', user.id, ')');
+
+    const notificationsRef = collection(db, COLLECTIONS.NOTIFICATIONS);
+    const q = query(
+      notificationsRef,
+      where('recipientId', '==', userId)
+      // orderBy('createdAt', 'desc') // Temporarily disabled until Firestore index is created
+    );
+
+    // Set up real-time listener
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
       try {
-        setLoading(true);
-        console.log('🔔 Fetching notifications for user:', user.id);
-
-        const notificationsRef = collection(db, COLLECTIONS.NOTIFICATIONS);
-        const q = query(
-          notificationsRef,
-          where('userId', '==', user.id),
-          orderBy('createdAt', 'desc')
-        );
-
-        const querySnapshot = await getDocs(q);
+        console.log('🔄 Real-time notification update received:', querySnapshot.size);
         const fetchedNotifications: Notification[] = [];
 
         querySnapshot.forEach((doc) => {
@@ -84,17 +86,31 @@ export default function StylistNotificationsScreen() {
           });
         });
 
-        console.log('✅ Fetched notifications:', fetchedNotifications.length);
+        // Sort manually by createdAt since we can't use orderBy without index
+        fetchedNotifications.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis?.() || 0;
+          const timeB = b.createdAt?.toMillis?.() || 0;
+          return timeB - timeA; // Descending order (newest first)
+        });
+
+        console.log('✅ Real-time notifications updated:', fetchedNotifications.length);
         setNotifications(fetchedNotifications);
+        setLoading(false);
       } catch (error) {
-        console.error('❌ Error fetching notifications:', error);
-      } finally {
+        console.error('❌ Error processing notification update:', error);
         setLoading(false);
       }
-    };
+    }, (error) => {
+      console.error('❌ Real-time notification listener error:', error);
+      setLoading(false);
+    });
 
-    fetchNotifications();
-  }, [user?.id]);
+    // Cleanup listener on unmount
+    return () => {
+      console.log('🔌 Unsubscribing from notifications listener');
+      unsubscribe();
+    };
+  }, [user?.uid, user?.id]);
 
   // Helper function to calculate time ago
   const getTimeAgo = (date: Date): string => {
@@ -197,7 +213,7 @@ export default function StylistNotificationsScreen() {
         {/* Notifications Header */}
         <View style={styles.section}>
           <View style={styles.headerContainer}>
-            <Text style={styles.pageTitle}>Notifications</Text>
+            <Text style={styles.pageTitle}>My Notifications</Text>
             {unreadCount > 0 && (
               <TouchableOpacity onPress={markAllAsRead} style={styles.markAllButton}>
                 <Text style={styles.markAllText}>Mark all as read</Text>
@@ -205,7 +221,9 @@ export default function StylistNotificationsScreen() {
             )}
           </View>
           <Text style={styles.pageSubtitle}>
-            {unreadCount > 0 ? `${unreadCount} unread notifications` : 'All caught up!'}
+            {unreadCount > 0 
+              ? `${unreadCount} unread notification${unreadCount !== 1 ? 's' : ''}`
+              : 'All caught up!'}
           </Text>
         </View>
 
@@ -261,9 +279,6 @@ export default function StylistNotificationsScreen() {
                         </View>
                       )}
                     </View>
-                  </View>
-                  <View style={styles.profileIconContainer}>
-                    <Ionicons name="person-circle" size={32} color="#9CA3AF" />
                   </View>
                 </TouchableOpacity>
               ))
@@ -290,7 +305,7 @@ export default function StylistNotificationsScreen() {
         {/* Notifications Header */}
         <View style={styles.section}>
           <View style={styles.headerContainer}>
-            <Text style={styles.pageTitle}>Notifications</Text>
+            <Text style={styles.pageTitle}>My Notifications</Text>
             {unreadCount > 0 && (
               <TouchableOpacity onPress={markAllAsRead} style={styles.markAllButton}>
                 <Text style={styles.markAllText}>Mark all as read</Text>
@@ -298,7 +313,9 @@ export default function StylistNotificationsScreen() {
             )}
           </View>
           <Text style={styles.pageSubtitle}>
-            {unreadCount > 0 ? `${unreadCount} unread notifications` : 'All caught up!'}
+            {unreadCount > 0 
+              ? `${unreadCount} unread notification${unreadCount !== 1 ? 's' : ''}`
+              : 'All caught up!'}
           </Text>
         </View>
 
@@ -354,9 +371,6 @@ export default function StylistNotificationsScreen() {
                         </View>
                       )}
                     </View>
-                  </View>
-                  <View style={styles.profileIconContainer}>
-                    <Ionicons name="person-circle" size={32} color="#9CA3AF" />
                   </View>
                 </TouchableOpacity>
               ))

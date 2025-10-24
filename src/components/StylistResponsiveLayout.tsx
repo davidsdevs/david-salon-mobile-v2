@@ -1,50 +1,29 @@
 import React from 'react';
-import { Platform } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { StylistTabParamList } from '../types';
-import SidebarWithHeader from './SidebarWithHeader';
+import { View, StyleSheet, Platform } from 'react-native';
 
 interface StylistResponsiveLayoutProps {
   children: React.ReactNode;
-  currentScreen: keyof StylistTabParamList;
+  currentScreen: string;
 }
 
-const isWeb = Platform.OS === 'web';
-
 export default function StylistResponsiveLayout({ children, currentScreen }: StylistResponsiveLayoutProps) {
-  const getPageTitle = (screen: keyof StylistTabParamList) => {
-    const titles = {
-      StylistDashboard: 'Dashboard',
-      StylistAppointments: 'Appointments',
-      StylistClients: 'Clients',
-      StylistSchedule: 'Schedule',
-      StylistPortfolio: 'Portfolio',
-    };
-    return titles[screen] || 'Dashboard';
-  };
-
-  // User info for the sidebar - stylist specific
-  const userInfo = {
-    name: "Maria Santos",
-    subtitle: "Stylist",
-    profileImage: undefined, // Will use default logo
-    badge: undefined
-  };
-
-  if (isWeb) {
-    // Web Layout with Sidebar (matching salon-management-system exactly)
+  if (Platform.OS === 'web') {
     return (
-      <SidebarWithHeader
-        userInfo={userInfo}
-        pageTitle={getPageTitle(currentScreen)}
-        currentScreen={currentScreen}
-        userType="stylist"
-      >
+      <View style={styles.webContainer}>
         {children}
-      </SidebarWithHeader>
+      </View>
     );
   }
 
-  // Mobile Layout - just return children (bottom nav handled by StylistTabNavigator)
   return <>{children}</>;
 }
+
+const styles = StyleSheet.create({
+  webContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#F5F5F5',
+  },
+});
+
+

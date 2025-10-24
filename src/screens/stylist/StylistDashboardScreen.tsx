@@ -14,7 +14,7 @@ import {
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc, collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, Timestamp, onSnapshot } from 'firebase/firestore';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import {
   StylistSection,
@@ -23,7 +23,7 @@ import {
   StylistCard,
   StylistBadge,
 } from '../../components/stylist';
-import useAuth from '../../hooks/useAuth';
+import { useAuth } from '../../hooks/redux';
 import { APP_CONFIG, FONTS } from '../../constants';
 import { Appointment } from '../../types';
 import { Stylist, Branch } from '../../types/api';
@@ -134,33 +134,58 @@ export default function StylistDashboardScreen() {
     );
   };
 
-  // Fetch today's appointments from Firebase
+  // Helper function to determine client type
+  const getClientType = (appointment: any): 'X' | 'TR' | 'R' => {
+    // Check if appointment has clientType field
+    if (appointment.clientType) {
+      if (appointment.clientType === 'new' || appointment.clientType === 'X - New Client' || appointment.clientType.includes('X')) return 'X';
+      if (appointment.clientType === 'transfer' || appointment.clientType === 'TR - Transfer' || appointment.clientType.includes('TR')) return 'TR';
+      if (appointment.clientType === 'regular' || appointment.clientType === 'R - Regular' || appointment.clientType.includes('R')) return 'R';
+    }
+    // Default to Regular
+    return 'R';
+  };
+
+  // Helper function to get client type variant for badge
+  const getClientTypeVariant = (type: 'X' | 'TR' | 'R') => {
+    if (type === 'X') return 'new-client';
+    if (type === 'TR') return 'transfer';
+    return 'regular';
+  };
+
+  // Helper function to get full client type label
+  const getFullClientTypeLabel = (type: 'X' | 'TR' | 'R') => {
+    if (type === 'X') return 'X - New Client';
+    if (type === 'TR') return 'TR - Transfer';
+    return 'R - Regular';
+  };
+
+  // Fetch today's appointments from Firebase with real-time updates
   useEffect(() => {
-    const fetchTodayAppointments = async () => {
-      if (!user?.id) {
-        setLoading(false);
-        return;
-      }
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
 
+    setLoading(true);
+    console.log('📋 Setting up real-time listener for stylist:', user.id);
+
+    // Get today's date in local timezone as string (YYYY-MM-DD)
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    const todayString = `${year}-${month}-${day}`;
+    
+    console.log('📅 Looking for appointmentDate:', todayString, 'Current local date:', today.toLocaleDateString());
+
+    const appointmentsRef = collection(db, COLLECTIONS.APPOINTMENTS);
+    
+    // Set up real-time listener
+    const unsubscribe = onSnapshot(appointmentsRef, async (querySnapshot) => {
       try {
-        setLoading(true);
-        console.log('📋 Fetching today\'s appointments for stylist:', user.id);
-
-        // Get today's date range
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-
-        const appointmentsRef = collection(db, COLLECTIONS.APPOINTMENTS);
-        const q = query(
-          appointmentsRef,
-          where('stylistId', '==', user.id),
-          where('date', '>=', Timestamp.fromDate(today)),
-          where('date', '<', Timestamp.fromDate(tomorrow))
-        );
-
-        const querySnapshot = await getDocs(q);
+        console.log('🔄 Real-time update received - Total appointments:', querySnapshot.size);
+        
         const appointments: any[] = [];
         let newClients = 0;
         let transferClients = 0;
@@ -169,49 +194,157 @@ export default function StylistDashboardScreen() {
         for (const appointmentDoc of querySnapshot.docs) {
           const appointmentData = appointmentDoc.data();
           
-          // Fetch client details
-          const clientDoc = await getDoc(doc(db, COLLECTIONS.USERS, appointmentData['clientId']));
-          const clientData = clientDoc.exists() ? clientDoc.data() : null;
+          // Check if appointment is for today
+          const appointmentDateString = appointmentData['appointmentDate'];
+          if (appointmentDateString !== todayString) {
+            continue; // Skip if not today
+          }
           
-          // Fetch service details
-          const serviceDoc = await getDoc(doc(db, COLLECTIONS.SERVICES, appointmentData['serviceId']));
-          const serviceData = serviceDoc.exists() ? serviceDoc.data() : null;
+          console.log('🔍 Checking appointment:', appointmentDoc.id, {
+            stylistId: appointmentData['stylistId'],
+            serviceStylistPairs: appointmentData['serviceStylistPairs'],
+            currentUserId: user.id,
+            appointmentDate: appointmentDateString
+          });
+          
+          // Check if this appointment belongs to the current stylist
+          let isStylistAppointment = false;
+          
+          // Check direct stylistId field
+          if (appointmentData['stylistId'] === user.id) {
+            console.log('✅ Match found via stylistId');
+            isStylistAppointment = true;
+          }
+          
+          // Check serviceStylistPairs array
+          if (appointmentData['serviceStylistPairs'] && Array.isArray(appointmentData['serviceStylistPairs'])) {
+            const hasStylist = appointmentData['serviceStylistPairs'].some(
+              (pair: any) => pair.stylistId === user.id
+            );
+            if (hasStylist) {
+              console.log('✅ Match found via serviceStylistPairs');
+              isStylistAppointment = true;
+            }
+          }
+          
+          // Skip if not this stylist's appointment
+          if (!isStylistAppointment) {
+            console.log('❌ Skipping - not this stylist\'s appointment');
+            continue;
+          }
+          
+          console.log('✅ Including appointment:', appointmentDoc.id);
+          
+          // Fetch client details
+          let clientData = null;
+          if (appointmentData['clientId']) {
+            try {
+              const clientDoc = await getDoc(doc(db, COLLECTIONS.USERS, appointmentData['clientId']));
+              clientData = clientDoc.exists() ? clientDoc.data() : null;
+            } catch (error) {
+              console.log('⚠️ Error fetching client:', error);
+            }
+          }
+          
+          // Fetch service details - get from serviceStylistPairs if available
+          let serviceData = null;
+          let serviceId = appointmentData['serviceId'];
+          
+          // If no direct serviceId, get from serviceStylistPairs
+          if (!serviceId && appointmentData['serviceStylistPairs'] && appointmentData['serviceStylistPairs'].length > 0) {
+            serviceId = appointmentData['serviceStylistPairs'][0].serviceId;
+          }
+          
+          if (serviceId) {
+            try {
+              const serviceDoc = await getDoc(doc(db, COLLECTIONS.SERVICES, serviceId));
+              serviceData = serviceDoc.exists() ? serviceDoc.data() : null;
+            } catch (error) {
+              console.log('⚠️ Error fetching service:', error);
+            }
+          }
+
+          // Calculate price from serviceStylistPairs or totalPrice
+          let price = 0;
+          if (appointmentData['serviceStylistPairs'] && Array.isArray(appointmentData['serviceStylistPairs'])) {
+            price = appointmentData['serviceStylistPairs'].reduce((sum: number, pair: any) => sum + (pair.servicePrice || 0), 0);
+          } else if (appointmentData['totalPrice']) {
+            price = appointmentData['totalPrice'];
+          } else if (appointmentData['price']) {
+            price = appointmentData['price'];
+          }
+
+          // Get service name from serviceStylistPairs or fetched service data
+          let serviceName = 'Unknown Service';
+          let serviceCount = 0;
+          if (appointmentData['serviceStylistPairs'] && appointmentData['serviceStylistPairs'].length > 0) {
+            serviceCount = appointmentData['serviceStylistPairs'].length;
+            if (serviceCount === 1) {
+              serviceName = appointmentData['serviceStylistPairs'][0].serviceName || 'Unknown Service';
+            } else {
+              serviceName = `${serviceCount} Services`;
+            }
+          } else if (serviceData && serviceData['name']) {
+            serviceName = serviceData['name'];
+            serviceCount = 1;
+          }
 
           const appointment = {
             id: appointmentDoc.id,
-            client: clientData ? `${clientData['firstName']} ${clientData['lastName']}` : 'Unknown Client',
-            service: serviceData ? serviceData['name'] : 'Unknown Service',
-            time: appointmentData['startTime'] || 'N/A',
+            client: clientData ? `${clientData['firstName'] || ''} ${clientData['lastName'] || ''}`.trim() : 'Unknown Client',
+            service: serviceName,
+            serviceCount: serviceCount,
+            serviceStylistPairs: appointmentData['serviceStylistPairs'] || [],
+            time: appointmentData['appointmentTime'] || appointmentData['startTime'] || 'N/A',
             duration: appointmentData['duration'] ? `${appointmentData['duration']} min` : 'N/A',
             clientType: 'R - Regular',
             notes: appointmentData['notes'] || '',
-            price: appointmentData['price'] ? `₱${appointmentData['price']}` : '₱0',
-            status: appointmentData['status'] || 'pending',
+            price: `₱${price}`,
+            status: appointmentData['status'] || 'scheduled',
           };
 
           appointments.push(appointment);
           regularClients++;
         }
 
-        setTodayAppointments(appointments);
+        // Count today's completed appointments
+        const todayClientsServed = appointments.filter(a => a.status === 'completed').length;
+
+        // Sort appointments: cancelled appointments at the bottom
+        const sortedAppointments = appointments.sort((a, b) => {
+          // If one is cancelled and the other isn't, cancelled goes to bottom
+          if (a.status === 'cancelled' && b.status !== 'cancelled') return 1;
+          if (a.status !== 'cancelled' && b.status === 'cancelled') return -1;
+          // Otherwise maintain original order
+          return 0;
+        });
+
+        setTodayAppointments(sortedAppointments);
         setStats({
           todayAppointments: appointments.length,
-          clientsServed: appointments.filter(a => a.status === 'completed').length,
+          clientsServed: todayClientsServed, // Today's completed appointments
           newClients,
           transferClients,
           regularClients,
         });
 
-        console.log('✅ Fetched appointments:', appointments.length);
+        console.log('✅ Real-time update processed:', appointments.length, 'Clients served today:', todayClientsServed);
       } catch (error) {
-        console.error('❌ Error fetching appointments:', error);
+        console.error('❌ Error processing real-time update:', error);
         setTodayAppointments([]);
       } finally {
         setLoading(false);
       }
-    };
+    }, (error) => {
+      console.error('❌ Real-time listener error:', error);
+      setLoading(false);
+    });
 
-    fetchTodayAppointments();
+    // Cleanup listener on unmount
+    return () => {
+      console.log('🔌 Unsubscribing from appointments listener');
+      unsubscribe();
+    };
   }, [user?.id]);
 
 
@@ -266,7 +399,7 @@ export default function StylistDashboardScreen() {
           <View style={styles.statsGrid}>
             <View style={styles.statCard}>
               <View style={styles.statHeader}>
-                <Text style={styles.statLabel}>Today Appointments</Text>
+                <Text style={styles.statLabel}>Today's Appointments</Text>
                 <View style={styles.statIcon}>
                   <Ionicons name="calendar" size={24} color="#160B53" />
                 </View>
@@ -275,7 +408,7 @@ export default function StylistDashboardScreen() {
             </View>
             <View style={styles.statCard}>
               <View style={styles.statHeader}>
-                <Text style={styles.statLabel}>Clients Served</Text>
+                <Text style={styles.statLabel}>Clients Served Today</Text>
                 <View style={styles.statIcon}>
                   <Ionicons name="people" size={24} color="#160B53" />
                 </View>
@@ -327,27 +460,51 @@ export default function StylistDashboardScreen() {
               />
             </View>
             <View style={styles.appointmentsList}>
-              {todayAppointments.map((appointment) => (
-                <TouchableOpacity key={appointment.id} style={styles.appointmentCard} onPress={() => openAppointmentDetails(appointment)}>
-      <View style={styles.appointmentHeader}>
-                    <Text style={styles.appointmentTime}>{appointment.time}</Text>
-                    <Text style={styles.appointmentClient}>{appointment.client}</Text>
-                    <Text style={styles.appointmentClientType}>{appointment.clientType}</Text>
-                  </View>
-                  <View style={styles.appointmentDetails}>
-                    <Text style={styles.appointmentService}>{appointment.service}</Text>
-                    <Text style={styles.appointmentDuration}>Duration: {appointment.duration}</Text>
-                    <View style={styles.appointmentFooter}>
-                      <Text style={styles.appointmentPrice}>{appointment.price}</Text>
-                      <StylistBadge
-                        label={appointment.status}
-                        variant={appointment.status === 'confirmed' ? 'confirmed' : 'pending'}
-                        size="small"
-                      />
+              {loading ? (
+                <View style={styles.emptyState}>
+                  <ActivityIndicator size="large" color="#160B53" />
+                  <Text style={styles.emptyStateText}>Loading appointments...</Text>
+                </View>
+              ) : todayAppointments.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="calendar-outline" size={64} color="#D1D5DB" />
+                  <Text style={styles.emptyStateTitle}>No Appointments Today</Text>
+                  <Text style={styles.emptyStateText}>You have no appointments scheduled for today.</Text>
+                </View>
+              ) : (
+                todayAppointments.map((appointment) => (
+                  <TouchableOpacity key={appointment.id} style={styles.appointmentCard} onPress={() => openAppointmentDetails(appointment)}>
+        <View style={styles.appointmentHeader}>
+                      <Text style={styles.appointmentTime}>{appointment.time}</Text>
+                      <Text style={styles.appointmentClient}>{appointment.client}</Text>
+                      <Text style={styles.appointmentClientType}>{appointment.clientType}</Text>
                     </View>
-                  </View>
-                </TouchableOpacity>
-              ))}
+                    <View style={styles.appointmentDetails}>
+                      <Text style={styles.appointmentService}>{appointment.service}</Text>
+                      <View style={styles.appointmentFooter}>
+                        <Text style={styles.appointmentPrice}>{appointment.price}</Text>
+                        <StylistBadge
+                          label={
+                            appointment.status === 'confirmed' ? 'Confirmed' :
+                            appointment.status === 'scheduled' ? 'Scheduled' :
+                            appointment.status === 'in_service' ? 'In Service' :
+                            appointment.status === 'completed' ? 'Completed' :
+                            appointment.status === 'cancelled' ? 'Cancelled' : appointment.status
+                          }
+                          variant={
+                            appointment.status === 'confirmed' ? 'confirmed' :
+                            appointment.status === 'scheduled' ? 'scheduled' :
+                            appointment.status === 'in_service' ? 'in-service' :
+                            appointment.status === 'completed' ? 'completed' :
+                            appointment.status === 'cancelled' ? 'cancelled' : 'default'
+                          }
+                          size="small"
+                        />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
             </View>
           </View>
 
@@ -362,7 +519,6 @@ export default function StylistDashboardScreen() {
                     <Text style={styles.modalRow}><Text style={styles.modalLabel}>Client:</Text> {selectedAppointment.client}</Text>
                     <Text style={styles.modalRow}><Text style={styles.modalLabel}>Type:</Text> {selectedAppointment.clientType}</Text>
                     <Text style={styles.modalRow}><Text style={styles.modalLabel}>Service:</Text> {selectedAppointment.service}</Text>
-                    <Text style={styles.modalRow}><Text style={styles.modalLabel}>Duration:</Text> {selectedAppointment.duration}</Text>
                     <Text style={styles.modalRow}><Text style={styles.modalLabel}>Notes:</Text> {selectedAppointment.notes}</Text>
                     <Text style={styles.modalRow}><Text style={styles.modalLabel}>Price:</Text> {selectedAppointment.price}</Text>
                     <Text style={styles.modalRow}><Text style={styles.modalLabel}>Status:</Text> {selectedAppointment.status}</Text>
@@ -432,14 +588,14 @@ export default function StylistDashboardScreen() {
             <View style={styles.metricIcon}>
               <Ionicons name="calendar" size={24} color="#160B53" />
             </View>
-            <Text style={styles.metricNumber}>8</Text>
+            <Text style={styles.metricNumber}>{loading ? '-' : stats.todayAppointments}</Text>
             <Text style={styles.metricLabel}>Today Appointments</Text>
           </View>
           <View style={styles.metricCard}>
             <View style={styles.metricIcon}>
               <Ionicons name="people" size={24} color="#160B53" />
             </View>
-            <Text style={styles.metricNumber}>6</Text>
+            <Text style={styles.metricNumber}>{loading ? '-' : stats.clientsServed}</Text>
             <Text style={styles.metricLabel}>Clients Served</Text>
           </View>
         </View>
@@ -455,7 +611,7 @@ export default function StylistDashboardScreen() {
           <View style={styles.breakdownCardYellow}>
             <View style={styles.breakdownContent}>
               <Text style={styles.breakdownLabel}>New Clients (X)</Text>
-              <Text style={styles.breakdownNumber}>1</Text>
+              <Text style={styles.breakdownNumber}>{loading ? '-' : stats.newClients}</Text>
               <Text style={styles.breakdownSubtext}>First-time visitors</Text>
             </View>
             <View style={styles.breakdownIconCircle}>
@@ -464,22 +620,22 @@ export default function StylistDashboardScreen() {
           </View>
           <View style={styles.breakdownCardPink}>
             <View style={styles.breakdownContent}>
-              <Text style={styles.breakdownLabel}>Transfer Clients (TR)</Text>
-              <Text style={styles.breakdownNumber}>1</Text>
-              <Text style={styles.breakdownSubtext}>No preferred stylist</Text>
-            </View>
-            <View style={styles.breakdownIconCircle}>
-              <Text style={styles.breakdownIconText}>TR</Text>
-            </View>
-          </View>
-          <View style={styles.breakdownCardCyan}>
-            <View style={styles.breakdownContent}>
               <Text style={styles.breakdownLabel}>Regular Clients (R)</Text>
-              <Text style={styles.breakdownNumber}>1</Text>
+              <Text style={styles.breakdownNumber}>{loading ? '-' : stats.regularClients}</Text>
               <Text style={styles.breakdownSubtext}>Preferred stylist clients</Text>
             </View>
             <View style={styles.breakdownIconCircle}>
               <Text style={styles.breakdownIconText}>R</Text>
+            </View>
+          </View>
+          <View style={styles.breakdownCardCyan}>
+            <View style={styles.breakdownContent}>
+              <Text style={styles.breakdownLabel}>Transfer Clients (TR)</Text>
+              <Text style={styles.breakdownNumber}>{loading ? '-' : stats.transferClients}</Text>
+              <Text style={styles.breakdownSubtext}>No preferred stylist</Text>
+            </View>
+            <View style={styles.breakdownIconCircle}>
+              <Text style={styles.breakdownIconText}>TR</Text>
             </View>
           </View>
         </View>
@@ -488,50 +644,70 @@ export default function StylistDashboardScreen() {
       {/* Today's Appointments */}
       <StylistSection>
         <Text style={styles.sectionTitle}>Today's Appointments</Text>
-        {todayAppointments.map((appointment) => (
-          <TouchableOpacity 
-            key={appointment.id}
-            style={styles.appointmentCard}
-            onPress={() => openAppointmentDetails(appointment)}
-          >
-            <View style={styles.appointmentLeft}>
-              <View style={styles.appointmentIcon}>
-                <Ionicons name="calendar" size={20} color="#4A90E2" />
-              </View>
-              <View style={styles.appointmentDetails}>
-                <View style={styles.nameRow}>
-                  <Text style={styles.appointmentClient}>{appointment.client}</Text>
-                  <StylistBadge
-                    label={appointment.clientType}
-                    variant={
-                      appointment.clientType === 'X - New Client' ? 'new-client' :
-                      appointment.clientType === 'R - Regular' ? 'regular' :
-                      appointment.clientType === 'TR - Transfer' ? 'transfer' : 'default'
-                    }
-                    size="small"
-                  />
+        {loading ? (
+          <View style={styles.emptyState}>
+            <ActivityIndicator size="large" color="#160B53" />
+            <Text style={styles.emptyStateText}>Loading appointments...</Text>
+          </View>
+        ) : todayAppointments.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="calendar-outline" size={64} color="#D1D5DB" />
+            <Text style={styles.emptyStateTitle}>No Appointments Today</Text>
+            <Text style={styles.emptyStateText}>You have no appointments scheduled for today.</Text>
+          </View>
+        ) : (
+          todayAppointments.map((appointment) => (
+            <TouchableOpacity 
+              key={appointment.id}
+              style={styles.appointmentCard}
+              onPress={() => openAppointmentDetails(appointment)}
+            >
+              <View style={styles.appointmentLeft}>
+                <View style={styles.appointmentIcon}>
+                  <Ionicons name="calendar" size={20} color="#4A90E2" />
                 </View>
-                <Text style={styles.appointmentService}>{appointment.service}</Text>
-                <View style={styles.appointmentInfo}>
-                  <View style={styles.appointmentInfoItem}>
-                    <Ionicons name="time" size={14} color="#666" />
-                    <Text style={styles.appointmentInfoText}>
-                      {appointment.time} • {appointment.duration}
-                    </Text>
+                <View style={styles.appointmentDetails}>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.appointmentClient}>{appointment.client}</Text>
+                    <StylistBadge
+                      label={getClientType(appointment)}
+                      variant={getClientTypeVariant(getClientType(appointment))}
+                      size="small"
+                    />
+                  </View>
+                  <Text style={styles.appointmentStylist}>{appointment.service}</Text>
+                  <View style={styles.appointmentInfo}>
+                    <View style={styles.appointmentInfoItem}>
+                      <Ionicons name="time" size={14} color="#666" />
+                      <Text style={styles.appointmentInfoText}>
+                        {appointment.time}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               </View>
-            </View>
-            <View style={styles.appointmentRight}>
-              <Text style={styles.priceText}>{appointment.price}</Text>
-              <StylistBadge
-                label={appointment.status}
-                variant={appointment.status === 'confirmed' ? 'confirmed' : 'pending'}
-                size="small"
-              />
-            </View>
-          </TouchableOpacity>
-        ))}
+              <View style={styles.appointmentRight}>
+                <Text style={styles.priceText}>{appointment.price}</Text>
+                <StylistBadge
+                  label={
+                    appointment.status === 'confirmed' ? 'Confirmed' :
+                    appointment.status === 'scheduled' ? 'Scheduled' :
+                    appointment.status === 'in_service' ? 'In Service' :
+                    appointment.status === 'completed' ? 'Completed' :
+                    appointment.status === 'cancelled' ? 'Cancelled' : appointment.status
+                  }
+                  variant={
+                    appointment.status === 'confirmed' ? 'confirmed' :
+                    appointment.status === 'scheduled' ? 'scheduled' :
+                    appointment.status === 'in_service' ? 'in-service' :
+                    appointment.status === 'completed' ? 'completed' :
+                    appointment.status === 'cancelled' ? 'cancelled' : 'default'
+                  }
+                  size="small"
+                />
+              </View>
+            </TouchableOpacity>
+          )))}
       </StylistSection>
 
 
@@ -558,12 +734,8 @@ export default function StylistDashboardScreen() {
                     <View style={styles.modalClientInfo}>
                       <Text style={styles.modalClientName}>{selectedAppointment.client}</Text>
                       <StylistBadge
-                        label={selectedAppointment.clientType}
-                        variant={
-                          selectedAppointment.clientType === 'X - New Client' ? 'new-client' :
-                          selectedAppointment.clientType === 'R - Regular' ? 'regular' :
-                          selectedAppointment.clientType === 'TR - Transfer' ? 'transfer' : 'default'
-                        }
+                        label={getFullClientTypeLabel(getClientType(selectedAppointment))}
+                        variant={getClientTypeVariant(getClientType(selectedAppointment))}
                         size="small"
                       />
                     </View>
@@ -572,6 +744,21 @@ export default function StylistDashboardScreen() {
 
                 {/* Appointment Details Section */}
                 <View style={styles.modalSection}>
+                  <View style={styles.modalDetailRow}>
+                    <Ionicons name="calendar-outline" size={20} color="#666" />
+                    <View style={styles.modalDetailContent}>
+                      <Text style={styles.modalDetailLabel}>Date</Text>
+                      <Text style={styles.modalDetailValue}>
+                        {new Date().toLocaleDateString('en-US', { 
+                          weekday: 'long', 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}
+                      </Text>
+                    </View>
+                  </View>
+
                   <View style={styles.modalDetailRow}>
                     <Ionicons name="cut-outline" size={20} color="#666" />
                     <View style={styles.modalDetailContent}>
@@ -583,8 +770,8 @@ export default function StylistDashboardScreen() {
                   <View style={styles.modalDetailRow}>
                     <Ionicons name="time-outline" size={20} color="#666" />
                     <View style={styles.modalDetailContent}>
-                      <Text style={styles.modalDetailLabel}>Time & Duration</Text>
-                      <Text style={styles.modalDetailValue}>{selectedAppointment.time} • {selectedAppointment.duration}</Text>
+                      <Text style={styles.modalDetailLabel}>Time</Text>
+                      <Text style={styles.modalDetailValue}>{selectedAppointment.time}</Text>
                     </View>
                   </View>
 
@@ -600,7 +787,7 @@ export default function StylistDashboardScreen() {
                     <Ionicons name="document-text-outline" size={20} color="#666" />
                     <View style={styles.modalDetailContent}>
                       <Text style={styles.modalDetailLabel}>Notes</Text>
-                      <Text style={styles.modalDetailValue}>{selectedAppointment.notes}</Text>
+                      <Text style={styles.modalDetailValue}>{selectedAppointment.notes || 'No notes'}</Text>
                     </View>
                   </View>
 
@@ -609,8 +796,20 @@ export default function StylistDashboardScreen() {
                     <View style={styles.modalDetailContent}>
                       <Text style={styles.modalDetailLabel}>Status</Text>
                       <StylistBadge
-                        label={selectedAppointment.status}
-                        variant={selectedAppointment.status === 'confirmed' ? 'confirmed' : 'pending'}
+                        label={
+                          selectedAppointment.status === 'confirmed' ? 'Confirmed' :
+                          selectedAppointment.status === 'scheduled' ? 'Scheduled' :
+                          selectedAppointment.status === 'in_service' ? 'In Service' :
+                          selectedAppointment.status === 'completed' ? 'Completed' :
+                          selectedAppointment.status === 'cancelled' ? 'Cancelled' : selectedAppointment.status
+                        }
+                        variant={
+                          selectedAppointment.status === 'confirmed' ? 'confirmed' :
+                          selectedAppointment.status === 'scheduled' ? 'scheduled' :
+                          selectedAppointment.status === 'in_service' ? 'in-service' :
+                          selectedAppointment.status === 'completed' ? 'completed' :
+                          selectedAppointment.status === 'cancelled' ? 'cancelled' : 'default'
+                        }
                         size="small"
                       />
                     </View>
@@ -662,7 +861,7 @@ const styles = StyleSheet.create({
   },
   metricsContainer: {
     paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
-    marginBottom: 20,
+    marginBottom: 8,
   },
   metricsRow: {
     flexDirection: 'row',
@@ -762,10 +961,10 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? FONTS.regular : 'Poppins_400Regular',
   },
   appointmentService: {
-    fontSize: Platform.OS === 'web' ? 16 : Platform.OS === 'ios' ? 15 : Platform.OS === 'android' ? 14 : 16,
-    color: Platform.OS === 'web' ? '#160B53' : '#160B53',
-    marginBottom: Platform.OS === 'web' ? 4 : 4,
-    fontFamily: Platform.OS === 'web' ? FONTS.semiBold : 'Poppins_700Bold',
+    fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
+    color: '#160B53',
+    marginBottom: 4,
+    fontFamily: Platform.OS === 'web' ? FONTS.medium : 'Poppins_600SemiBold',
   },
   appointmentStylist: {
     fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
@@ -783,7 +982,7 @@ const styles = StyleSheet.create({
   appointmentInfoText: {
     fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
     color: '#666',
-    marginLeft: 5,
+    marginLeft: 6,
     fontFamily: 'Poppins_400Regular',
   },
   statusBadge: {
@@ -953,11 +1152,12 @@ const styles = StyleSheet.create({
   // New styles for client breakdown
   clientBreakdownGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
     marginTop: 12,
   },
   clientTypeCard: {
-    flex: 1,
+    width: '48%', // 2 columns with gap (approximately 50% - gap)
     padding: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -1013,9 +1213,10 @@ const styles = StyleSheet.create({
     color: '#160B53',
   },
   appointmentClient: {
-    fontSize: 14,
-    fontFamily: FONTS.medium,
-    color: '#000000',
+    fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
+    fontFamily: Platform.OS === 'web' ? FONTS.medium : 'Poppins_600SemiBold',
+    color: '#160B53',
+    marginBottom: 4,
   },
   appointmentClientType: {
     fontSize: 12,
@@ -1063,11 +1264,19 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
   modalTitle: {
-    fontSize: 18,
-    fontFamily: FONTS.semiBold,
+    fontSize: Platform.OS === 'android' ? 18 : Platform.OS === 'ios' ? 19 : 20,
+    fontFamily: Platform.OS === 'web' ? 'Poppins_600SemiBold' : 'Poppins_700Bold',
     color: '#160B53',
-    marginBottom: 12,
   },
   modalBody: {
     marginBottom: 16,
@@ -1117,7 +1326,7 @@ const styles = StyleSheet.create({
   priceText: {
     fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
     color: '#160B53',
-    fontFamily: FONTS.bold,
+    fontFamily: 'Poppins_700Bold',
     marginBottom: 8,
   },
   // Client Breakdown Styles
@@ -1199,15 +1408,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bold,
   },
   // Enhanced Modal Styles
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
   modalSection: {
     marginBottom: 20,
   },
@@ -1232,6 +1432,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#160B53',
     fontFamily: FONTS.bold,
+  },
+  modalClientNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
   },
   modalDetailRow: {
     flexDirection: 'row',
@@ -1277,7 +1483,25 @@ const styles = StyleSheet.create({
     color: '#10B981',
     fontFamily: FONTS.semiBold,
   },
-  // ========================================
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    color: '#160B53',
+    fontFamily: FONTS.bold,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontFamily: FONTS.regular,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+});  // ========================================
   // END OF WEB-SPECIFIC STYLES
   // ========================================
-});

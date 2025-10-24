@@ -23,6 +23,7 @@ import { APP_CONFIG, FONTS } from '../../constants';
 import { Appointment } from '../../types/api';
 import { useAuth } from '../../hooks/redux';
 import AppointmentService from '../../services/appointmentService';
+import RealtimeDebugger from '../../utils/realtimeDebugger';
 
 const { width } = Dimensions.get('window');
 const isIPhone = Platform.OS === 'ios';
@@ -114,10 +115,33 @@ export default function AppointmentsScreen() {
 
     console.log('🔄 Setting up real-time subscription for user:', user.id);
     
+    // Enable debug mode for troubleshooting
+    RealtimeDebugger.enableDebugMode();
+    
+    // Run diagnosis first
+    RealtimeDebugger.diagnoseRealtimeIssues(user.id).then(results => {
+      console.log('🔍 Real-time diagnosis results:', results);
+      if (results.errors.length > 0) {
+        console.error('❌ Real-time issues detected:', results.errors);
+        Alert.alert(
+          'Real-time Connection Issues',
+          `Detected issues with real-time updates:\n${results.errors.join('\n')}\n\nPlease check your internet connection and try refreshing the app.`,
+          [{ text: 'OK' }]
+        );
+      }
+    }).catch(error => {
+      console.error('❌ Real-time diagnosis failed:', error);
+    });
+    
     const unsubscribe = AppointmentService.subscribeToClientAppointments(
       user.id,
       async (updatedAppointments) => {
         console.log('📡 Real-time update received:', updatedAppointments.length, 'appointments');
+        RealtimeDebugger.log('Real-time update received', {
+          appointmentCount: updatedAppointments.length,
+          timestamp: new Date().toISOString()
+        });
+        
         setAppointments(updatedAppointments);
         
         // Fetch branch names for new appointments
@@ -151,11 +175,25 @@ export default function AppointmentsScreen() {
   const onRefresh = async () => {
     console.log('🔄 Manual refresh triggered');
     setRefreshing(true);
-    // The real-time subscription will handle updating the appointments
-    // We just need to trigger a refresh indicator
-    setTimeout(() => {
+    
+    try {
+      // Force reload appointments
+      await loadAppointments();
+      
+      // Test real-time connection
+      if (user?.id) {
+        RealtimeDebugger.testRealtimeSubscription(user.id).then(result => {
+          console.log('🔍 Manual refresh - real-time test result:', result);
+        }).catch(error => {
+          console.error('❌ Manual refresh - real-time test failed:', error);
+        });
+      }
+    } catch (error) {
+      console.error('❌ Manual refresh failed:', error);
+      Alert.alert('Refresh Failed', 'Unable to refresh appointments. Please check your connection.');
+    } finally {
       setRefreshing(false);
-    }, 1000);
+    }
   };
 
   // Filter appointments based on selected filter and status
@@ -168,7 +206,8 @@ export default function AppointmentsScreen() {
     let dateMatch = false;
     switch (filter) {
       case 'upcoming':
-        dateMatch = appointmentDate >= today;
+        // For upcoming appointments, exclude canceled appointments regardless of date
+        dateMatch = appointmentDate >= today && appointment.status !== 'cancelled';
         break;
       case 'past':
         dateMatch = appointmentDate < today;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,77 +10,113 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, COLLECTIONS } from '../../config/firebase';
 import ScreenWrapper from '../../components/ScreenWrapper';
-import useAuth from '../../hooks/useAuth';
+import { useAuth } from '../../hooks/redux';
 import { APP_CONFIG, FONTS } from '../../constants';
 
 const { width } = Dimensions.get('window');
 const isIPhone = Platform.OS === 'ios';
 
 interface Notification {
-  id: number;
+  id: string;
   title: string;
   message: string;
   time: string;
   type: 'appointment' | 'promotion' | 'reward' | 'general';
   read: boolean;
+  isRead: boolean;
+  createdAt?: any;
   actionRequired?: boolean;
 }
 
 export default function NotificationsScreen() {
   const { user } = useAuth();
   const navigation = useNavigation();
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: 1,
-      title: 'Appointment Reminder',
-      message: 'Your hair cut appointment with Sarah Johnson is tomorrow at 2:00 PM',
-      time: '2 hours ago',
-      type: 'appointment',
-      read: false,
-      actionRequired: true,
-    },
-    {
-      id: 2,
-      title: 'New Promotion Available',
-      message: 'Get 25% off all hair coloring services this month!',
-      time: '1 day ago',
-      type: 'promotion',
-      read: false,
-    },
-    {
-      id: 3,
-      title: 'Reward Earned',
-      message: 'You earned 50 points for your recent visit. Total: 1,300 points',
-      time: '2 days ago',
-      type: 'reward',
-      read: true,
-    },
-    {
-      id: 4,
-      title: 'Welcome to David Salon',
-      message: 'Thank you for joining us! Enjoy your first visit with 15% off any service.',
-      time: '1 week ago',
-      type: 'general',
-      read: true,
-    },
-    {
-      id: 5,
-      title: 'Appointment Confirmed',
-      message: 'Your manicure appointment with Lisa Chen has been confirmed for next Friday',
-      time: '3 days ago',
-      type: 'appointment',
-      read: true,
-    },
-    {
-      id: 6,
-      title: 'Special Offer',
-      message: 'Bring a friend and both get 20% off your next service!',
-      time: '5 days ago',
-      type: 'promotion',
-      read: true,
-    },
-  ]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch notifications from Firebase with real-time updates
+  useEffect(() => {
+    if (!user?.id && !user?.uid) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const userId = user.uid || user.id;
+    console.log('🔔 Setting up real-time listener for client notifications:', userId);
+
+    const notificationsRef = collection(db, COLLECTIONS.NOTIFICATIONS);
+    const q = query(
+      notificationsRef,
+      where('recipientId', '==', userId)
+    );
+
+    // Set up real-time listener
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      try {
+        console.log('🔄 Real-time notification update received:', querySnapshot.size);
+        const fetchedNotifications: Notification[] = [];
+
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          const createdAt = data['createdAt']?.toDate();
+          const timeAgo = createdAt ? getTimeAgo(createdAt) : 'Recently';
+
+          fetchedNotifications.push({
+            id: doc.id,
+            title: data['title'] || 'Notification',
+            message: data['message'] || '',
+            time: timeAgo,
+            type: data['type'] || 'general',
+            read: data['isRead'] || false,
+            isRead: data['isRead'] || false,
+            createdAt: data['createdAt'],
+          });
+        });
+
+        // Sort manually by createdAt
+        fetchedNotifications.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis?.() || 0;
+          const timeB = b.createdAt?.toMillis?.() || 0;
+          return timeB - timeA; // Descending order (newest first)
+        });
+
+        console.log('✅ Real-time notifications updated:', fetchedNotifications.length);
+        setNotifications(fetchedNotifications);
+        setLoading(false);
+      } catch (error) {
+        console.error('❌ Error processing notification update:', error);
+        setLoading(false);
+      }
+    }, (error) => {
+      console.error('❌ Real-time notification listener error:', error);
+      setLoading(false);
+    });
+
+    // Cleanup listener on unmount
+    return () => {
+      console.log('🔌 Unsubscribing from notifications listener');
+      unsubscribe();
+    };
+  }, [user?.uid, user?.id]);
+
+  // Helper function to calculate time ago
+  const getTimeAgo = (date: Date): string => {
+    const now = new Date();
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+
+    if (diffInMinutes < 1) return 'Just now';
+    if (diffInMinutes < 60) return `${diffInMinutes} minute${diffInMinutes > 1 ? 's' : ''} ago`;
+    if (diffInHours < 24) return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
+    if (diffInDays < 7) return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
+    return date.toLocaleDateString();
+  };
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -108,7 +144,7 @@ export default function NotificationsScreen() {
     }
   };
 
-  const markAsRead = (id: number) => {
+  const markAsRead = (id: string) => {
     setNotifications(prev => 
       prev.map(notification => 
         notification.id === id 

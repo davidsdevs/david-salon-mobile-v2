@@ -11,16 +11,17 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../config/firebase';
 import { useAuth } from '../../hooks/redux';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import { StylistSection } from '../../components/stylist';
 import { FONTS, TYPOGRAPHY, SPACING, RADIUS } from '../../constants';
 
 export default function StylistEditProfileScreen() {
   const navigation = useNavigation();
-  const { user } = useAuth();
+  const { user, updateUserProfile } = useAuth();
   const [loading, setLoading] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -44,11 +45,34 @@ export default function StylistEditProfileScreen() {
     try {
       setLoading(true);
       
+      // Update Firebase
       await updateDoc(doc(db, COLLECTIONS.USERS, user.id), {
         firstName: formData.firstName,
         lastName: formData.lastName,
         phone: formData.phone,
       });
+
+      // Fetch updated user data from Firebase
+      const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, user.id));
+      if (userDoc.exists()) {
+        const updatedUserData = userDoc.data();
+        
+        // Create updated user object
+        const updatedUser = {
+          ...user,
+          firstName: updatedUserData.firstName,
+          lastName: updatedUserData.lastName,
+          phone: updatedUserData.phone,
+        };
+        
+        // Update Redux store with fresh data
+        updateUserProfile(updatedUser);
+        
+        // Also save to AsyncStorage so it persists
+        await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+        
+        console.log('✅ Profile updated in Firebase, Redux, and AsyncStorage');
+      }
 
       Alert.alert('Success', 'Profile updated successfully', [
         {
