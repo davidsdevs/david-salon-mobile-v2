@@ -1,17 +1,19 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   Platform,
   Dimensions,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, where, getDocs, updateDoc, doc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, onSnapshot, limit, orderBy, Timestamp, writeBatch, deleteDoc } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../config/firebase';
 import { useAuth } from '../../hooks/redux';
 import ScreenWrapper from '../../components/ScreenWrapper';
@@ -38,20 +40,31 @@ interface Notification {
 
 export default function StylistNotificationsScreen() {
   const navigation = useNavigation();
-  const scrollViewRef = useRef<ScrollView>(null);
+  const flatListRef = useRef<FlatList>(null);
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'unread' | 'read'>('all');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const itemsPerPage = 5;
+  const [isDeleting, setIsDeleting] = useState(false);
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Scroll to top when screen is focused
   useFocusEffect(
     useCallback(() => {
-      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
     }, [])
   );
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Fetch notifications from Firebase with real-time updates
   useEffect(() => {
@@ -64,46 +77,55 @@ export default function StylistNotificationsScreen() {
     const userId = user.uid || user.id;
     console.log('🔔 Setting up real-time listener for notifications:', userId, '(uid:', user.uid, 'id:', user.id, ')');
 
+    // Limit to last 60 days and max 100 notifications
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    const sixtyDaysAgoTimestamp = Timestamp.fromDate(sixtyDaysAgo);
+
     const notificationsRef = collection(db, COLLECTIONS.NOTIFICATIONS);
     const q = query(
       notificationsRef,
-      where('recipientId', '==', userId)
-      // orderBy('createdAt', 'desc') // Temporarily disabled until Firestore index is created
+      where('recipientId', '==', userId),
+      where('createdAt', '>=', sixtyDaysAgoTimestamp),
+      orderBy('createdAt', 'desc'),
+      limit(100)
     );
 
-    // Set up real-time listener
+    // Set up real-time listener with debouncing
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       try {
         console.log('🔄 Real-time notification update received:', querySnapshot.size);
-        const fetchedNotifications: Notification[] = [];
+        
+        // Debounce updates to prevent rapid re-renders
+        if (updateTimeoutRef.current) {
+          clearTimeout(updateTimeoutRef.current);
+        }
 
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          const createdAt = data['createdAt']?.toDate();
-          const timeAgo = createdAt ? getTimeAgo(createdAt) : 'Recently';
+        updateTimeoutRef.current = setTimeout(() => {
+          const fetchedNotifications: Notification[] = [];
 
-          fetchedNotifications.push({
-            id: doc.id,
-            title: data['title'] || 'Notification',
-            message: data['message'] || '',
-            time: timeAgo,
-            type: data['type'] || 'general',
-            read: data['isRead'] || false,
-            isRead: data['isRead'] || false,
-            createdAt: data['createdAt'],
+          querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            const createdAt = data['createdAt']?.toDate();
+            const timeAgo = createdAt ? getTimeAgo(createdAt) : 'Recently';
+
+            fetchedNotifications.push({
+              id: doc.id,
+              title: data['title'] || 'Notification',
+              message: data['message'] || '',
+              time: timeAgo,
+              type: data['type'] || 'general',
+              read: data['isRead'] || false,
+              isRead: data['isRead'] || false,
+              createdAt: data['createdAt'],
+            });
           });
-        });
 
-        // Sort manually by createdAt since we can't use orderBy without index
-        fetchedNotifications.sort((a, b) => {
-          const timeA = a.createdAt?.toMillis?.() || 0;
-          const timeB = b.createdAt?.toMillis?.() || 0;
-          return timeB - timeA; // Descending order (newest first)
-        });
-
-        console.log('✅ Real-time notifications updated:', fetchedNotifications.length);
-        setNotifications(fetchedNotifications);
-        setLoading(false);
+          // Already sorted by orderBy in query
+          console.log('✅ Real-time notifications updated:', fetchedNotifications.length);
+          setNotifications(fetchedNotifications);
+          setLoading(false);
+        }, 300); // 300ms debounce
       } catch (error) {
         console.error('❌ Error processing notification update:', error);
         setLoading(false);
@@ -185,24 +207,64 @@ export default function StylistNotificationsScreen() {
 
   const markAllAsRead = async () => {
     try {
-      // Update all unread notifications in Firebase
+      // Update all unread notifications in Firebase using batch
       const unreadNotifications = notifications.filter(n => !n.read);
       
-      for (const notification of unreadNotifications) {
-        const notificationRef = doc(db, COLLECTIONS.NOTIFICATIONS, notification.id);
-        await updateDoc(notificationRef, {
-          isRead: true,
-        });
-      }
+      if (unreadNotifications.length === 0) return;
 
-      // Update local state
-      setNotifications(prev => 
-        prev.map(notification => ({ ...notification, read: true, isRead: true }))
-      );
+      const batch = writeBatch(db);
+      unreadNotifications.forEach(notification => {
+        const notificationRef = doc(db, COLLECTIONS.NOTIFICATIONS, notification.id);
+        batch.update(notificationRef, { isRead: true });
+      });
+      
+      await batch.commit();
       console.log('✅ All notifications marked as read');
     } catch (error) {
       console.error('❌ Error marking all notifications as read:', error);
     }
+  };
+
+  const clearReadNotifications = async () => {
+    Alert.alert(
+      'Clear Read Notifications',
+      'Are you sure you want to delete all read notifications? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsDeleting(true);
+              const readNotifications = notifications.filter(n => n.read);
+              
+              if (readNotifications.length === 0) {
+                Alert.alert('No Read Notifications', 'There are no read notifications to delete.');
+                setIsDeleting(false);
+                return;
+              }
+
+              // Batch delete read notifications
+              const batch = writeBatch(db);
+              readNotifications.forEach(notification => {
+                const notificationRef = doc(db, COLLECTIONS.NOTIFICATIONS, notification.id);
+                batch.delete(notificationRef);
+              });
+              
+              await batch.commit();
+              console.log('✅ Deleted', readNotifications.length, 'read notifications');
+              Alert.alert('Success', `Deleted ${readNotifications.length} read notification${readNotifications.length !== 1 ? 's' : ''}`);
+              setIsDeleting(false);
+            } catch (error) {
+              console.error('❌ Error deleting read notifications:', error);
+              Alert.alert('Error', 'Failed to delete notifications. Please try again.');
+              setIsDeleting(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -218,55 +280,64 @@ export default function StylistNotificationsScreen() {
     schedule: notifications.filter(n => n.type === 'schedule').length,
   };
 
-  // Filter notifications based on selected filter
-  const filteredNotifications = notifications.filter(n => {
-    if (selectedFilter === 'unread') return !n.read;
-    if (selectedFilter === 'read') return n.read;
-    return true; // 'all'
-  });
+  // Memoize filtered notifications
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter(n => {
+      if (selectedFilter === 'unread') return !n.read;
+      if (selectedFilter === 'read') return n.read;
+      return true; // 'all'
+    });
+  }, [notifications, selectedFilter]);
 
-  // Pagination
-  const totalPages = Math.ceil(filteredNotifications.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedNotifications = filteredNotifications.slice(startIndex, endIndex);
+  // Memoize pagination
+  const { totalPages, startIndex, endIndex, paginatedNotifications } = useMemo(() => {
+    const totalPages = Math.ceil(filteredNotifications.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedNotifications = filteredNotifications.slice(startIndex, endIndex);
+    return { totalPages, startIndex, endIndex, paginatedNotifications };
+  }, [filteredNotifications, currentPage, itemsPerPage]);
 
   // Reset to page 1 when filter changes
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedFilter]);
 
-  // Group notifications by date
-  const groupedNotifications = filteredNotifications.reduce((groups: any, notification) => {
-    const date = notification.createdAt?.toDate();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+  // Memoize grouped notifications
+  const { groupedNotifications, sortedGroups } = useMemo(() => {
+    const groupedNotifications = paginatedNotifications.reduce((groups: any, notification) => {
+      const date = notification.createdAt?.toDate();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
 
-    let groupKey = 'Older';
-    if (date) {
-      const notifDate = new Date(date);
-      notifDate.setHours(0, 0, 0, 0);
-      
-      if (notifDate.getTime() === today.getTime()) {
-        groupKey = 'Today';
-      } else if (notifDate.getTime() === yesterday.getTime()) {
-        groupKey = 'Yesterday';
-      } else if (notifDate > new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)) {
-        groupKey = 'This Week';
+      let groupKey = 'Older';
+      if (date) {
+        const notifDate = new Date(date);
+        notifDate.setHours(0, 0, 0, 0);
+        
+        if (notifDate.getTime() === today.getTime()) {
+          groupKey = 'Today';
+        } else if (notifDate.getTime() === yesterday.getTime()) {
+          groupKey = 'Yesterday';
+        } else if (notifDate > new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)) {
+          groupKey = 'This Week';
+        }
       }
-    }
 
-    if (!groups[groupKey]) {
-      groups[groupKey] = [];
-    }
-    groups[groupKey].push(notification);
-    return groups;
-  }, {});
+      if (!groups[groupKey]) {
+        groups[groupKey] = [];
+      }
+      groups[groupKey].push(notification);
+      return groups;
+    }, {});
 
-  const groupOrder = ['Today', 'Yesterday', 'This Week', 'Older'];
-  const sortedGroups = groupOrder.filter(key => groupedNotifications[key]);
+    const groupOrder = ['Today', 'Yesterday', 'This Week', 'Older'];
+    const sortedGroups = groupOrder.filter(key => groupedNotifications[key]);
+    
+    return { groupedNotifications, sortedGroups };
+  }, [paginatedNotifications]);
 
   // For web, render without ScreenWrapper to avoid duplicate headers
   if (Platform.OS === 'web') {
@@ -360,10 +431,73 @@ export default function StylistNotificationsScreen() {
     );
   }
 
+  // Render notification item for FlatList
+  const renderNotificationItem = useCallback(({ item: notification }: { item: Notification }) => (
+    <TouchableOpacity
+      style={[
+        styles.notificationCard,
+        !notification.read && styles.unreadNotification
+      ]}
+      onPress={() => markAsRead(notification.id)}
+    >
+      <View style={styles.notificationLeft}>
+        <View style={[
+          styles.notificationIcon,
+          { backgroundColor: getNotificationColor(notification.type) + '20' }
+        ]}>
+          <Ionicons 
+            name={getNotificationIcon(notification.type) as any} 
+            size={20} 
+            color={getNotificationColor(notification.type)} 
+          />
+        </View>
+        <View style={styles.notificationContent}>
+          <View style={styles.notificationHeader}>
+            <Text style={[
+              styles.notificationTitle,
+              !notification.read && styles.unreadText
+            ]}>
+              {notification.title}
+            </Text>
+            {!notification.read && <View style={styles.unreadDot} />}
+          </View>
+          <Text style={styles.notificationMessage}>
+            {notification.message}
+          </Text>
+          <Text style={styles.notificationTime}>
+            {notification.time}
+          </Text>
+          {notification.actionRequired && (
+            <View style={styles.actionRequiredBadge}>
+              <Text style={styles.actionRequiredText}>Action Required</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  ), []);
+
+  // Render group header for FlatList
+  const renderGroupHeader = useCallback((groupKey: string) => (
+    <Text style={styles.groupTitle}>{groupKey}</Text>
+  ), []);
+
+  // Flatten grouped notifications for FlatList
+  const flatListData = useMemo(() => {
+    const data: Array<{ type: 'header' | 'item', groupKey?: string, notification?: Notification }> = [];
+    sortedGroups.forEach(groupKey => {
+      data.push({ type: 'header', groupKey });
+      groupedNotifications[groupKey].forEach((notification: Notification) => {
+        data.push({ type: 'item', notification });
+      });
+    });
+    return data;
+  }, [sortedGroups, groupedNotifications]);
+
   // For mobile, use ScreenWrapper with header
   return (
     <ScreenWrapper title="Notifications" showBackButton={true} userType="stylist">
-      <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
+      <View style={styles.container}>
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#160B53" />
@@ -461,11 +595,26 @@ export default function StylistNotificationsScreen() {
                 </TouchableOpacity>
               </View>
             </ScrollView>
-            {unreadCount > 0 && (
-              <TouchableOpacity onPress={markAllAsRead} style={styles.markAllButton}>
-                <Ionicons name="checkmark-done" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            )}
+            <View style={styles.actionButtons}>
+              {unreadCount > 0 && (
+                <TouchableOpacity onPress={markAllAsRead} style={styles.markAllButton}>
+                  <Ionicons name="checkmark-done" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              )}
+              {readCount > 0 && (
+                <TouchableOpacity 
+                  onPress={clearReadNotifications} 
+                  style={[styles.markAllButton, styles.clearButton]}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </StylistSection>
 
@@ -488,56 +637,27 @@ export default function StylistNotificationsScreen() {
               </Text>
             </View>
           ) : (
-            sortedGroups.map((groupKey) => (
-              <View key={groupKey} style={styles.notificationGroup}>
-                <Text style={styles.groupTitle}>{groupKey}</Text>
-                {groupedNotifications[groupKey].map((notification: Notification) => (
-                <TouchableOpacity
-                  key={notification.id}
-                  style={[
-                    styles.notificationCard,
-                    !notification.read && styles.unreadNotification
-                  ]}
-                  onPress={() => markAsRead(notification.id)}
-                >
-                  <View style={styles.notificationLeft}>
-                    <View style={[
-                      styles.notificationIcon,
-                      { backgroundColor: getNotificationColor(notification.type) + '20' }
-                    ]}>
-                      <Ionicons 
-                        name={getNotificationIcon(notification.type) as any} 
-                        size={20} 
-                        color={getNotificationColor(notification.type)} 
-                      />
-                    </View>
-                    <View style={styles.notificationContent}>
-                      <View style={styles.notificationHeader}>
-                        <Text style={[
-                          styles.notificationTitle,
-                          !notification.read && styles.unreadText
-                        ]}>
-                          {notification.title}
-                        </Text>
-                        {!notification.read && <View style={styles.unreadDot} />}
-                      </View>
-                      <Text style={styles.notificationMessage}>
-                        {notification.message}
-                      </Text>
-                      <Text style={styles.notificationTime}>
-                        {notification.time}
-                      </Text>
-                      {notification.actionRequired && (
-                        <View style={styles.actionRequiredBadge}>
-                          <Text style={styles.actionRequiredText}>Action Required</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              ))}
-              </View>
-            ))
+            <FlatList
+              ref={flatListRef}
+              data={flatListData}
+              keyExtractor={(item, index) => 
+                item.type === 'header' ? `header-${item.groupKey}` : `item-${item.notification?.id}-${index}`
+              }
+              renderItem={({ item }) => {
+                if (item.type === 'header') {
+                  return renderGroupHeader(item.groupKey!);
+                }
+                return renderNotificationItem({ item: item.notification! });
+              }}
+              showsVerticalScrollIndicator={false}
+              removeClippedSubviews={true}
+              maxToRenderPerBatch={10}
+              updateCellsBatchingPeriod={50}
+              initialNumToRender={5}
+              windowSize={5}
+              nestedScrollEnabled={true}
+              scrollEnabled={false}
+            />
           )}
 
           {/* Pagination Controls */}
@@ -572,7 +692,7 @@ export default function StylistNotificationsScreen() {
         </StylistSection>
         </>
         )}
-      </ScrollView>
+      </View>
     </ScreenWrapper>
   );
 }
@@ -818,6 +938,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 4,
     flex: 1,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  clearButton: {
+    backgroundColor: '#EF4444',
   },
   // Quick Filter Chips (consistent with other pages)
   quickFilterChip: {

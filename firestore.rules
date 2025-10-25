@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user owns the resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    // Clients collection
+    match /clients/{clientId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(clientId);
+    }
+
+    // Stylists collection
+    match /stylists/{stylistId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(stylistId);
+    }
+
+    // Appointments collection
+    match /appointments/{appointmentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && 
+        (isOwner(resource.data.clientId) || isOwner(resource.data.stylistId));
+      allow delete: if isAuthenticated() && 
+        (isOwner(resource.data.clientId) || isOwner(resource.data.stylistId));
+    }
+
+    // Notifications collection - Temporarily fully open for debugging
+    match /notifications/{notificationId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Services collection
+    match /services/{serviceId} {
+      allow read: if true; // Public read
+      allow write: if isAuthenticated();
+    }
+
+    // Branches collection
+    match /branches/{branchId} {
+      allow read: if true; // Public read
+      allow write: if isAuthenticated();
+    }
+
+    // Products collection
+    match /products/{productId} {
+      allow read: if true; // Public read
+      allow write: if isAuthenticated();
+    }
+
+    // Portfolio collection
+    match /portfolio/{portfolioId} {
+      allow read: if true; // Public read
+      allow write: if isAuthenticated();
+    }
+
+    // Analytics collection
+    match /analytics/{analyticsId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+  }
+}
