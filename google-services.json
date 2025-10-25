@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "248565145509",
+    "project_id": "david-salon-fff6d",
+    "storage_bucket": "david-salon-fff6d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:248565145509:android:5e2a7aa86641aacf48524c",
+        "android_client_info": {
+          "package_name": "com.davidssalon.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCPDrM1NpO16o4Yl_xc1506cg33um92mEA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

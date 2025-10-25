@@ -37,7 +37,9 @@
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "NOTIFICATIONS"
-      ]
+      ],
+      "googleServicesFile": "./google-services.json",
+      "useNextNotificationsApi": true
     },
     "web": {
       "favicon": "./assets/logo.png"

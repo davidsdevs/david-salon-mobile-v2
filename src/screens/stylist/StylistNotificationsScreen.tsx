@@ -13,9 +13,11 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, where, getDocs, updateDoc, doc, onSnapshot, limit, orderBy, Timestamp, writeBatch, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, onSnapshot, limit, orderBy, Timestamp, writeBatch, deleteDoc, addDoc } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../config/firebase';
 import { useAuth } from '../../hooks/redux';
+import { scheduleLocalNotification } from '../../services/pushNotifications';
+import { sendManualPushNotification } from '../../utils/sendManualPushNotification';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import {
   StylistSection,
@@ -265,6 +267,48 @@ export default function StylistNotificationsScreen() {
         },
       ]
     );
+  };
+
+  // Test push notification functions
+  const testLocalNotification = () => {
+    scheduleLocalNotification(
+      'Test Notification',
+      'This is a local test notification! It will appear in 5 seconds.',
+      5
+    );
+    Alert.alert('Success', 'Test notification scheduled! Wait 5 seconds...');
+  };
+
+  const testFirestoreNotification = async () => {
+    try {
+      if (!user?.id) {
+        Alert.alert('Error', 'User not logged in');
+        return;
+      }
+
+      // Create notification in Firestore
+      await addDoc(collection(db, COLLECTIONS.NOTIFICATIONS), {
+        recipientId: user.id,
+        title: 'Test from Firestore',
+        message: 'This notification was created in Firestore with manual push!',
+        type: 'general',
+        isRead: false,
+        createdAt: Timestamp.now(),
+      });
+
+      // Manually send push notification
+      await sendManualPushNotification(
+        user.id,
+        'Test from Firestore',
+        'This notification was created in Firestore with manual push!',
+        { type: 'test', screen: 'Notifications' }
+      );
+
+      Alert.alert('Success', 'Notification created and push sent! Check your notification.');
+    } catch (error) {
+      console.error('Error creating test notification:', error);
+      Alert.alert('Error', 'Failed to create notification');
+    }
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -615,6 +659,28 @@ export default function StylistNotificationsScreen() {
                 </TouchableOpacity>
               )}
             </View>
+          </View>
+        </StylistSection>
+
+        {/* Test Push Notifications (Development Only) */}
+        <StylistSection>
+          <Text style={styles.testSectionTitle}>🧪 Test Push Notifications</Text>
+          <View style={styles.testButtonsRow}>
+            <TouchableOpacity 
+              style={styles.testButton}
+              onPress={testLocalNotification}
+            >
+              <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.testButtonText}>Local (5s)</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.testButton, styles.testButtonFirestore]}
+              onPress={testFirestoreNotification}
+            >
+              <Ionicons name="cloud-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.testButtonText}>Firestore</Text>
+            </TouchableOpacity>
           </View>
         </StylistSection>
 
@@ -1039,8 +1105,39 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   paginationSubtext: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: FONTS.regular,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  // Test Push Notification Styles
+  testSectionTitle: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
     color: '#6B7280',
+    marginBottom: 12,
+  },
+  testButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  testButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3B82F6',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+  testButtonFirestore: {
+    backgroundColor: '#10B981',
+  },
+  testButtonText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#FFFFFF',
   },
 });

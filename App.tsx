@@ -15,7 +15,11 @@ import { store } from './src/store';
 import { STORAGE_KEYS } from './src/constants';
 import { RootState } from './src/store';
 import { loadStoredAuth, logoutUser } from './src/store/slices/authSlice';
-import { PushNotificationService } from './src/services/pushNotificationService';
+import { 
+  registerForPushNotificationsAsync, 
+  savePushTokenToUser,
+  setupNotificationListeners 
+} from './src/services/pushNotifications';
 import { EmailNotificationService } from './src/services/emailNotificationService';
 import * as Notifications from 'expo-notifications';
 
@@ -137,23 +141,19 @@ function AppContent() {
       EmailNotificationService.initialize();
       
       // Register for push notifications
-      const token = await PushNotificationService.registerForPushNotifications();
+      const token = await registerForPushNotificationsAsync();
       if (token && user?.id) {
         console.log('✅ Push notification token obtained:', token);
         // Save token to user profile in Firebase
-        await PushNotificationService.savePushToken(user.id, token);
+        await savePushTokenToUser(user.id, token);
       }
       
-      // Listen for notifications while app is open
-      const notificationListener = PushNotificationService.addNotificationReceivedListener(
+      // Setup notification listeners
+      const cleanup = setupNotificationListeners(
         (notification) => {
           console.log('📬 Notification received:', notification);
           // You can show an in-app alert or update UI here
-        }
-      );
-      
-      // Listen for notification taps
-      const responseListener = PushNotificationService.addNotificationResponseReceivedListener(
+        },
         (response) => {
           console.log('👆 Notification tapped:', response);
           const data = response.notification.request.content.data;
@@ -169,10 +169,7 @@ function AppContent() {
       );
       
       // Clean up listeners on unmount
-      return () => {
-        notificationListener.remove();
-        responseListener.remove();
-      };
+      return cleanup;
     } catch (error) {
       console.error('❌ Error initializing notifications:', error);
     }
