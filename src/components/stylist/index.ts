@@ -6,3 +6,4 @@ export { default as StylistCard } from './StylistCard';
 export { default as StylistBadge } from './StylistBadge';
 export { default as StylistPageTitle } from './StylistPageTitle';
 export { default as StylistSection } from './StylistSection';
+export { default as ClientTypeLegend } from './ClientTypeLegend';

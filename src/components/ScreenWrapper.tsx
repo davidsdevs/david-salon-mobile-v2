@@ -33,7 +33,7 @@ export default function ScreenWrapper({
   const insets = useSafeAreaInsets();
   const content = scrollable ? (
     <ScrollView 
-      style={[styles.scrollContainer, { paddingTop: insets.top + 60 }]} 
+      style={[styles.scrollContainer, { paddingTop: insets.top + 80 }]} 
       showsVerticalScrollIndicator={false}
       contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
     >
@@ -41,7 +41,7 @@ export default function ScreenWrapper({
     </ScrollView>
   ) : (
     <View style={[styles.container, { 
-      paddingTop: insets.top + 60,
+      paddingTop: insets.top + 90,
       paddingBottom: insets.bottom + 80 
     }]}>
       {children}

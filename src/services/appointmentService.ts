@@ -769,12 +769,40 @@ export class AppointmentService {
       
       // Fetch branch data
       let branchData = null;
+      let branchName = '';
       if (firestoreData.branchId) {
         try {
           branchData = await this.getBranchById(firestoreData.branchId);
-          console.log('✅ Found branch:', branchData?.name);
+          branchName = branchData?.name || '';
+          console.log('✅ Found branch:', branchName);
         } catch (error) {
           console.log('⚠️ Could not fetch branch:', error);
+        }
+      }
+      
+      // Fetch client details (phone, email, allergies)
+      let clientPhone = '';
+      let clientEmail = '';
+      let clientAllergies = '';
+      let clientFirstName = '';
+      let clientLastName = '';
+      let clientFullName = '';
+      
+      if (firestoreData.clientId) {
+        try {
+          const clientDoc = await getDoc(doc(db, 'users', firestoreData.clientId));
+          if (clientDoc.exists()) {
+            const clientData = clientDoc.data();
+            clientFirstName = clientData.firstName || '';
+            clientLastName = clientData.lastName || '';
+            clientFullName = `${clientFirstName} ${clientLastName}`.trim();
+            clientPhone = clientData.phone || clientData.phoneNumber || '';
+            clientEmail = clientData.email || '';
+            clientAllergies = clientData.allergies || clientData.specialNotes || '';
+            console.log('✅ Found client details:', clientFullName, clientPhone);
+          }
+        } catch (error) {
+          console.log('⚠️ Could not fetch client details:', error);
         }
       }
       
@@ -845,7 +873,13 @@ export class AppointmentService {
         updatedAt: firestoreData.updatedAt?.toDate().toISOString() || new Date().toISOString(),
         // New Firestore fields
         clientInfo: firestoreData.clientInfo,
-        clientName: firestoreData.clientInfo?.clientName || firestoreData.clientName,
+        clientName: clientFullName || firestoreData.clientInfo?.clientName || firestoreData.clientName,
+        clientFirstName: clientFirstName,
+        clientLastName: clientLastName,
+        clientPhone: clientPhone,
+        clientEmail: clientEmail,
+        allergies: clientAllergies,
+        branchName: branchName,
         createdBy: firestoreData.createdBy,
         history: firestoreData.history || [],
         primaryStylistId: primaryStylistId,

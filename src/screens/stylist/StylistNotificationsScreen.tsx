@@ -15,6 +15,11 @@ import { collection, query, where, getDocs, updateDoc, doc, onSnapshot } from 'f
 import { db, COLLECTIONS } from '../../config/firebase';
 import { useAuth } from '../../hooks/redux';
 import ScreenWrapper from '../../components/ScreenWrapper';
+import {
+  StylistSection,
+  StylistPageTitle,
+  StylistBadge,
+} from '../../components/stylist';
 import { APP_CONFIG, FONTS } from '../../constants';
 
 const { width } = Dimensions.get('window');
@@ -37,6 +42,9 @@ export default function StylistNotificationsScreen() {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'unread' | 'read'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   // Scroll to top when screen is focused
   useFocusEffect(
@@ -198,6 +206,67 @@ export default function StylistNotificationsScreen() {
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
+  const readCount = notifications.filter(n => n.read).length;
+
+  // Group notifications by type
+  const stats = {
+    total: notifications.length,
+    unread: unreadCount,
+    read: readCount,
+    appointment: notifications.filter(n => n.type === 'appointment').length,
+    client: notifications.filter(n => n.type === 'client').length,
+    schedule: notifications.filter(n => n.type === 'schedule').length,
+  };
+
+  // Filter notifications based on selected filter
+  const filteredNotifications = notifications.filter(n => {
+    if (selectedFilter === 'unread') return !n.read;
+    if (selectedFilter === 'read') return n.read;
+    return true; // 'all'
+  });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredNotifications.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedNotifications = filteredNotifications.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedFilter]);
+
+  // Group notifications by date
+  const groupedNotifications = filteredNotifications.reduce((groups: any, notification) => {
+    const date = notification.createdAt?.toDate();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    let groupKey = 'Older';
+    if (date) {
+      const notifDate = new Date(date);
+      notifDate.setHours(0, 0, 0, 0);
+      
+      if (notifDate.getTime() === today.getTime()) {
+        groupKey = 'Today';
+      } else if (notifDate.getTime() === yesterday.getTime()) {
+        groupKey = 'Yesterday';
+      } else if (notifDate > new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)) {
+        groupKey = 'This Week';
+      }
+    }
+
+    if (!groups[groupKey]) {
+      groups[groupKey] = [];
+    }
+    groups[groupKey].push(notification);
+    return groups;
+  }, {});
+
+  const groupOrder = ['Today', 'Yesterday', 'This Week', 'Older'];
+  const sortedGroups = groupOrder.filter(key => groupedNotifications[key]);
 
   // For web, render without ScreenWrapper to avoid duplicate headers
   if (Platform.OS === 'web') {
@@ -302,34 +371,127 @@ export default function StylistNotificationsScreen() {
           </View>
         ) : (
           <>
-        {/* Notifications Header */}
-        <View style={styles.section}>
-          <View style={styles.headerContainer}>
-            <Text style={styles.pageTitle}>My Notifications</Text>
+        {/* Filter Tabs */}
+        <StylistSection>
+          <View style={styles.filterRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.filterTabs}>
+                <TouchableOpacity
+                  style={[
+                    styles.quickFilterChip,
+                    selectedFilter === 'all' && styles.quickFilterChipActive
+                  ]}
+                  onPress={() => setSelectedFilter('all')}
+                >
+                  <Text style={[
+                    styles.quickFilterText,
+                    selectedFilter === 'all' && styles.quickFilterTextActive
+                  ]}>
+                    All
+                  </Text>
+                  {stats.total > 0 && (
+                    <View style={[
+                      styles.quickFilterBadge,
+                      selectedFilter === 'all' && styles.quickFilterBadgeActive
+                    ]}>
+                      <Text style={[
+                        styles.quickFilterBadgeText,
+                        selectedFilter === 'all' && styles.quickFilterBadgeTextActive
+                      ]}>
+                        {stats.total}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.quickFilterChip,
+                    selectedFilter === 'unread' && styles.quickFilterChipActive
+                  ]}
+                  onPress={() => setSelectedFilter('unread')}
+                >
+                  <Text style={[
+                    styles.quickFilterText,
+                    selectedFilter === 'unread' && styles.quickFilterTextActive
+                  ]}>
+                    Unread
+                  </Text>
+                  {stats.unread > 0 && (
+                    <View style={[
+                      styles.quickFilterBadge,
+                      selectedFilter === 'unread' && styles.quickFilterBadgeActive
+                    ]}>
+                      <Text style={[
+                        styles.quickFilterBadgeText,
+                        selectedFilter === 'unread' && styles.quickFilterBadgeTextActive
+                      ]}>
+                        {stats.unread}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.quickFilterChip,
+                    selectedFilter === 'read' && styles.quickFilterChipActive
+                  ]}
+                  onPress={() => setSelectedFilter('read')}
+                >
+                  <Text style={[
+                    styles.quickFilterText,
+                    selectedFilter === 'read' && styles.quickFilterTextActive
+                  ]}>
+                    Read
+                  </Text>
+                  {stats.read > 0 && (
+                    <View style={[
+                      styles.quickFilterBadge,
+                      selectedFilter === 'read' && styles.quickFilterBadgeActive
+                    ]}>
+                      <Text style={[
+                        styles.quickFilterBadgeText,
+                        selectedFilter === 'read' && styles.quickFilterBadgeTextActive
+                      ]}>
+                        {stats.read}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
             {unreadCount > 0 && (
               <TouchableOpacity onPress={markAllAsRead} style={styles.markAllButton}>
-                <Text style={styles.markAllText}>Mark all as read</Text>
+                <Ionicons name="checkmark-done" size={16} color="#FFFFFF" />
               </TouchableOpacity>
             )}
           </View>
-          <Text style={styles.pageSubtitle}>
-            {unreadCount > 0 
-              ? `${unreadCount} unread notification${unreadCount !== 1 ? 's' : ''}`
-              : 'All caught up!'}
-          </Text>
-        </View>
+        </StylistSection>
 
         {/* Notifications List */}
-        <View style={styles.section}>
-          <View style={styles.notificationsContainer}>
-            {notifications.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="notifications-off-outline" size={64} color="#9CA3AF" />
-                <Text style={styles.emptyTitle}>No notifications yet</Text>
-                <Text style={styles.emptyMessage}>You're all caught up! Check back later for updates.</Text>
+        <StylistSection>
+          {filteredNotifications.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="notifications" size={48} color="#3B82F6" />
               </View>
-            ) : (
-              notifications.map((notification) => (
+              <Text style={styles.emptyTitle}>
+                {selectedFilter === 'unread' ? 'All Caught Up!' : 
+                 selectedFilter === 'read' ? 'No Read Notifications' :
+                 'No Notifications Yet'}
+              </Text>
+              <Text style={styles.emptyMessage}>
+                {selectedFilter === 'unread' ? 'Great! You have no unread notifications at the moment.' : 
+                 selectedFilter === 'read' ? 'You haven\'t read any notifications yet.' :
+                 'You\'ll receive notifications about appointments, cancellations, and important updates here.'}
+              </Text>
+            </View>
+          ) : (
+            sortedGroups.map((groupKey) => (
+              <View key={groupKey} style={styles.notificationGroup}>
+                <Text style={styles.groupTitle}>{groupKey}</Text>
+                {groupedNotifications[groupKey].map((notification: Notification) => (
                 <TouchableOpacity
                   key={notification.id}
                   style={[
@@ -373,10 +535,41 @@ export default function StylistNotificationsScreen() {
                     </View>
                   </View>
                 </TouchableOpacity>
-              ))
-            )}
-          </View>
-        </View>
+              ))}
+              </View>
+            ))
+          )}
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <View style={styles.paginationContainer}>
+              <TouchableOpacity
+                style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
+                onPress={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? '#D1D5DB' : '#160B53'} />
+              </TouchableOpacity>
+              
+              <View style={styles.paginationInfo}>
+                <Text style={styles.paginationText}>
+                  Page {currentPage} of {totalPages}
+                </Text>
+                <Text style={styles.paginationSubtext}>
+                  {startIndex + 1}-{Math.min(endIndex, filteredNotifications.length)} of {filteredNotifications.length}
+                </Text>
+              </View>
+              
+              <TouchableOpacity
+                style={[styles.paginationButton, currentPage === totalPages && styles.paginationButtonDisabled]}
+                onPress={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+              >
+                <Ionicons name="chevron-forward" size={20} color={currentPage === totalPages ? '#D1D5DB' : '#160B53'} />
+              </TouchableOpacity>
+            </View>
+          )}
+        </StylistSection>
         </>
         )}
       </ScrollView>
@@ -435,6 +628,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 14 : 16,
+    marginBottom: 12, // Add gap between notifications
     shadowColor: Platform.OS === 'web' ? '#000000' : '#000',
     shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 2 },
     shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.1,
@@ -528,11 +722,19 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     paddingHorizontal: 24,
   },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
   emptyTitle: {
     fontSize: 18,
     color: '#160B53',
     fontFamily: FONTS.bold,
-    marginTop: 16,
     marginBottom: 8,
   },
   emptyMessage: {
@@ -541,5 +743,177 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.regular,
     textAlign: 'center',
     lineHeight: 20,
+    maxWidth: 280,
+  },
+  // Enhanced Stats Card (consistent with other pages)
+  statsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  statsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  statsTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  totalBadge: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  totalBadgeText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  statNumber: {
+    fontSize: 20,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  // Filter Row
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  filterTabs: {
+    flexDirection: 'row',
+    gap: 4,
+    flex: 1,
+  },
+  // Quick Filter Chips (consistent with other pages)
+  quickFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  quickFilterChipActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  quickFilterText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#374151',
+  },
+  quickFilterTextActive: {
+    color: '#FFFFFF',
+  },
+  quickFilterBadge: {
+    marginLeft: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickFilterBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  quickFilterBadgeText: {
+    fontSize: 12,
+    fontFamily: FONTS.bold,
+    color: APP_CONFIG.primaryColor,
+  },
+  quickFilterBadgeTextActive: {
+    color: '#FFFFFF',
+  },
+  // Grouped Notifications
+  notificationGroup: {
+    marginBottom: 24,
+  },
+  groupTitle: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  // Pagination Styles
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 24,
+    marginBottom: 16,
+    gap: 16,
+  },
+  paginationButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  paginationButtonDisabled: {
+    backgroundColor: '#F3F4F6',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  paginationInfo: {
+    alignItems: 'center',
+  },
+  paginationText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+    marginBottom: 2,
+  },
+  paginationSubtext: {
+    fontSize: 11,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
   },
 });

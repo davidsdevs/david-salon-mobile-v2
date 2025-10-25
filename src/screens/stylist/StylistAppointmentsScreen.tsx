@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
@@ -34,6 +35,8 @@ const isIPhone = Platform.OS === 'ios';
 export default function StylistAppointmentsScreen() {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const scrollViewRef = React.useRef<ScrollView>(null);
+  const appointmentListRef = React.useRef<View>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('Today');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -43,8 +46,45 @@ export default function StylistAppointmentsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [sortBy, setSortBy] = useState<'time' | 'client'>('time');
   const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null); // null = no date filter
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [calendarDates, setCalendarDates] = useState<Date[]>([]);
 
-  const filterOptions = ['Today', 'Upcoming', 'Scheduled', 'Confirmed', 'In-Service', 'Completed', 'Cancelled'];
+  const filterOptions = ['Today', 'Upcoming', 'Confirmed', 'Completed', 'Cancelled'];
+
+  // Generate calendar dates for the current month
+  useEffect(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const firstDayOfWeek = firstDay.getDay();
+    
+    const dates: Date[] = [];
+    
+    // Add trailing days from previous month
+    for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+      const date = new Date(year, month, -i);
+      dates.push(date);
+    }
+    
+    // Add all days of current month
+    for (let day = 1; day <= lastDay.getDate(); day++) {
+      dates.push(new Date(year, month, day));
+    }
+    
+    // Add leading days from next month to complete the grid
+    const remainingDays = 7 - (dates.length % 7);
+    if (remainingDays < 7) {
+      for (let day = 1; day <= remainingDays; day++) {
+        dates.push(new Date(year, month + 1, day));
+      }
+    }
+    
+    setCalendarDates(dates);
+  }, [currentMonth]);
 
   // Set up real-time subscription for appointments
   useEffect(() => {
@@ -77,72 +117,118 @@ export default function StylistAppointmentsScreen() {
     };
   }, [user?.uid]);
 
+  // Calculate stats for summary card
+  const todayAppointments = appointments.filter(apt => {
+    const aptDate = new Date(apt.appointmentDate || apt.date);
+    const today = new Date();
+    return aptDate.getDate() === today.getDate() &&
+           aptDate.getMonth() === today.getMonth() &&
+           aptDate.getFullYear() === today.getFullYear();
+  });
+
+  const stats = {
+    total: todayAppointments.length,
+    confirmed: todayAppointments.filter((a: any) => a.status === 'confirmed').length,
+    pending: todayAppointments.filter((a: any) => a.status === 'scheduled' || a.status === 'pending').length,
+    inService: todayAppointments.filter((a: any) => a.status === 'in-service' || a.status === 'in_service' || a.status === 'in_progress').length,
+    nextAppointment: todayAppointments
+      .filter((a: any) => a.status !== 'completed' && a.status !== 'cancelled')
+      .sort((a: any, b: any) => {
+        const timeA = a.appointmentTime || a.startTime || '';
+        const timeB = b.appointmentTime || b.startTime || '';
+        return timeA.localeCompare(timeB);
+      })[0],
+  };
+
   const filteredAppointments = appointments.filter(appointment => {
-    // Use real Firebase data fields
-    const clientName = appointment.clientName || 
-                      `${appointment.clientFirstName || ''} ${appointment.clientLastName || ''}`.trim() ||
+    // Use real Firebase data fields with type casting
+    const apt = appointment as any;
+    const clientName = apt.clientName || 
+                      `${apt.clientFirstName || ''} ${apt.clientLastName || ''}`.trim() ||
                       'Unknown Client';
-    const serviceName = appointment.service?.name || 
-                       (appointment.services && appointment.services[0]?.name) ||
-                       'Unknown Service';
+    
+    // Search in service names (handle multiple services)
+    let serviceNames = '';
+    if (apt.serviceStylistPairs && apt.serviceStylistPairs.length > 0) {
+      serviceNames = apt.serviceStylistPairs.map((p: any) => p.serviceName).join(' ');
+    } else if (appointment.service?.name) {
+      serviceNames = appointment.service.name;
+    }
     
     const matchesSearch = clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         serviceName.toLowerCase().includes(searchQuery.toLowerCase());
+                         serviceNames.toLowerCase().includes(searchQuery.toLowerCase());
     
-    // Check if filter matches status and date
+    // 1. Filter by selected date (if date picker is used)
+    let matchesDate = true;
+    if (selectedDate) {
+      const appointmentDate = new Date(apt.appointmentDate || apt.date);
+      appointmentDate.setHours(0, 0, 0, 0);
+      const selectedDateNormalized = new Date(selectedDate);
+      selectedDateNormalized.setHours(0, 0, 0, 0);
+      matchesDate = appointmentDate.getTime() === selectedDateNormalized.getTime();
+    }
+    
+    // 2. Filter by status (if status filter is active)
     let matchesFilter = false;
-    const appointmentDate = new Date(appointment.appointmentDate || appointment.date);
+    const appointmentDate = new Date(apt.appointmentDate || apt.date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     
+    // Normalize status for comparison (handle different status formats)
+    const status = (appointment.status || '').toLowerCase();
+    
     switch (selectedFilter) {
       case 'Today':
-        // Today shows ALL appointments scheduled for today (any status)
-        matchesFilter = appointmentDate >= today && appointmentDate < tomorrow;
+        // Today shows ALL appointments scheduled for today (any status except cancelled)
+        const aptDate = new Date(appointmentDate);
+        aptDate.setHours(0, 0, 0, 0);
+        matchesFilter = aptDate.getTime() === today.getTime() && status !== 'cancelled';
         break;
       case 'Upcoming':
-        // Upcoming shows only scheduled appointments from tomorrow onwards (excludes today and cancelled)
-        matchesFilter = appointmentDate >= tomorrow && appointment.status === 'scheduled';
-        break;
-      case 'Scheduled':
-        // Scheduled shows all scheduled appointments (any date, excludes cancelled)
-        matchesFilter = appointment.status === 'scheduled';
+        // Upcoming shows scheduled/confirmed appointments from tomorrow onwards
+        matchesFilter = appointmentDate >= tomorrow && 
+                       (status === 'scheduled' || status === 'confirmed' || status === 'pending');
         break;
       case 'Confirmed':
         // Confirmed shows only confirmed appointments
-        matchesFilter = appointment.status === 'confirmed';
-        break;
-      case 'In-Service':
-        // In-Service shows only in-service appointments
-        matchesFilter = appointment.status === 'in-service';
+        matchesFilter = status === 'confirmed';
         break;
       case 'Completed':
         // Completed shows only completed appointments
-        matchesFilter = appointment.status === 'completed';
+        matchesFilter = status === 'completed';
         break;
       case 'Cancelled':
         // Cancelled shows only cancelled appointments
-        matchesFilter = appointment.status === 'cancelled';
+        matchesFilter = status === 'cancelled';
         break;
       default:
         matchesFilter = true;
     }
     
-    return matchesSearch && matchesFilter;
+    return matchesSearch && matchesDate && matchesFilter;
   }).sort((a, b) => {
+    const aptA = a as any;
+    const aptB = b as any;
+    
     // Sort appointments based on selected sort option
     switch (sortBy) {
       case 'time':
-        // Sort by appointment time
-        const timeA = a.appointmentTime || a.startTime || '';
-        const timeB = b.appointmentTime || b.startTime || '';
+        // Sort by appointment date first, then time
+        const dateA = new Date(aptA.appointmentDate || aptA.date).getTime();
+        const dateB = new Date(aptB.appointmentDate || aptB.date).getTime();
+        if (dateA !== dateB) {
+          return dateA - dateB; // Earlier dates first
+        }
+        // If same date, sort by time
+        const timeA = aptA.appointmentTime || aptA.startTime || '';
+        const timeB = aptB.appointmentTime || aptB.startTime || '';
         return timeA.localeCompare(timeB);
       case 'client':
         // Sort by client name
-        const clientA = a.clientName || `${a.clientFirstName || ''} ${a.clientLastName || ''}`.trim() || '';
-        const clientB = b.clientName || `${b.clientFirstName || ''} ${b.clientLastName || ''}`.trim() || '';
+        const clientA = (aptA.clientName || `${aptA.clientFirstName || ''} ${aptA.clientLastName || ''}`.trim() || '').toLowerCase();
+        const clientB = (aptB.clientName || `${aptB.clientFirstName || ''} ${aptB.clientLastName || ''}`.trim() || '').toLowerCase();
         return clientA.localeCompare(clientB);
       default:
         return 0;
@@ -252,92 +338,260 @@ export default function StylistAppointmentsScreen() {
     return 'R - Regular';
   };
 
+  // Calendar helper functions
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return date.getDate() === today.getDate() &&
+           date.getMonth() === today.getMonth() &&
+           date.getFullYear() === today.getFullYear();
+  };
+
+  const isSelected = (date: Date) => {
+    if (!selectedDate) return false;
+    return date.getDate() === selectedDate.getDate() &&
+           date.getMonth() === selectedDate.getMonth() &&
+           date.getFullYear() === selectedDate.getFullYear();
+  };
+
+  const isCurrentMonth = (date: Date) => {
+    return date.getMonth() === currentMonth.getMonth();
+  };
+
+  const hasAppointments = (date: Date) => {
+    const dateStr = date.toISOString().split('T')[0];
+    return appointments.some((apt: any) => {
+      const aptDate = new Date(apt.appointmentDate || apt.date);
+      return aptDate.toISOString().split('T')[0] === dateStr;
+    });
+  };
+
+  const goToPreviousMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+  };
+
+  const goToNextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+  };
+
+  const goToToday = () => {
+    const today = new Date();
+    setCurrentMonth(today);
+    setSelectedDate(today);
+    scrollToAppointmentList();
+  };
+
+  // Scroll to appointment list when date is selected
+  const scrollToAppointmentList = () => {
+    setTimeout(() => {
+      // Scroll to appointment list section (below filters, search, and calendar)
+      // Increased value to ensure we reach the list
+      scrollViewRef.current?.scrollTo({ y: 1000, animated: true });
+    }, 300);
+  };
+
   // Mobile-first responsive layout
   return (
     <ScreenWrapper title="Appointments" userType="stylist">
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Search and Filters */}
-        <StylistSection style={styles.searchSection}>
-          <StylistSearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search Appointments"
-          />
-          
-          {/* Filter Tabs */}
+      <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Quick Filters */}
+        <StylistSection>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.filterTabs}>
               {filterOptions.map((filter) => {
-                const getVariant = () => {
-                  if (filter === 'X - New Client') return 'new-client';
-                  if (filter === 'R - Regular') return 'regular';
-                  if (filter === 'TR - Transfer') return 'transfer';
-                  return 'default';
-                };
+                // Count appointments using the SAME logic as the main filter
+                const count = appointments.filter(apt => {
+                  const aptAny = apt as any;
+                  const appointmentDate = new Date(aptAny.appointmentDate || aptAny.date);
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const tomorrow = new Date(today);
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  
+                  const status = (apt.status || '').toLowerCase();
+                  
+                  if (filter === 'Today') {
+                    // Today shows ALL appointments scheduled for today (any status except cancelled)
+                    const aptDate = new Date(appointmentDate);
+                    aptDate.setHours(0, 0, 0, 0);
+                    return aptDate.getTime() === today.getTime() && status !== 'cancelled';
+                  }
+                  if (filter === 'Upcoming') {
+                    // Upcoming shows scheduled/confirmed appointments from tomorrow onwards
+                    return appointmentDate >= tomorrow && 
+                           (status === 'scheduled' || status === 'confirmed' || status === 'pending');
+                  }
+                  if (filter === 'Confirmed') {
+                    return status === 'confirmed';
+                  }
+                  if (filter === 'Completed') {
+                    return status === 'completed';
+                  }
+                  if (filter === 'Cancelled') {
+                    return status === 'cancelled';
+                  }
+                  return false;
+                }).length;
+
                 return (
-                  <StylistFilterTab
+                  <TouchableOpacity
                     key={filter}
-                    label={filter}
-                    isActive={selectedFilter === filter}
+                    style={[
+                      styles.quickFilterChip,
+                      selectedFilter === filter && styles.quickFilterChipActive
+                    ]}
                     onPress={() => setSelectedFilter(filter)}
-                    variant={getVariant()}
-                  />
+                  >
+                    <Text style={[
+                      styles.quickFilterText,
+                      selectedFilter === filter && styles.quickFilterTextActive
+                    ]}>
+                      {filter}
+                    </Text>
+                    {count > 0 && (
+                      <View style={[
+                        styles.quickFilterBadge,
+                        selectedFilter === filter && styles.quickFilterBadgeActive
+                      ]}>
+                        <Text style={[
+                          styles.quickFilterBadgeText,
+                          selectedFilter === filter && styles.quickFilterBadgeTextActive
+                        ]}>
+                          {count}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
                 );
               })}
             </View>
           </ScrollView>
         </StylistSection>
 
-        {/* Appointments List */}
+        {/* Search and Sort */}
         <StylistSection>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Appointments List</Text>
-            <View style={styles.sortContainer}>
-              <TouchableOpacity 
-                style={styles.sortIconButton}
-                onPress={() => setSortDropdownVisible(!sortDropdownVisible)}
+          <View style={styles.searchSortRow}>
+            <View style={styles.searchBarContainer}>
+              <StylistSearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search by name..."
+              />
+            </View>
+            <View style={styles.sortButtons}>
+              <TouchableOpacity
+                style={[styles.sortButton, showCalendar && styles.sortButtonActive]}
+                onPress={() => setShowCalendar(!showCalendar)}
               >
-                <Ionicons name="swap-vertical" size={20} color="#160B53" />
-                <Ionicons 
-                  name={sortDropdownVisible ? "chevron-up" : "chevron-down"} 
-                  size={16} 
-                  color="#160B53" 
-                />
+                <Ionicons name="calendar-outline" size={18} color={showCalendar ? '#FFFFFF' : '#6B7280'} />
               </TouchableOpacity>
-              
-              {sortDropdownVisible && (
-                <View style={styles.sortDropdown}>
-                  <TouchableOpacity 
-                    style={[styles.sortDropdownItem, sortBy === 'time' && styles.sortDropdownItemActive]}
-                    onPress={() => {
-                      setSortBy('time');
-                      setSortDropdownVisible(false);
-                    }}
-                  >
-                    <Ionicons name="time-outline" size={18} color={sortBy === 'time' ? '#160B53' : '#6B7280'} />
-                    <Text style={[styles.sortDropdownText, sortBy === 'time' && styles.sortDropdownTextActive]}>
-                      Sort by Time
-                    </Text>
-                    {sortBy === 'time' && <Ionicons name="checkmark" size={18} color="#160B53" />}
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[styles.sortDropdownItem, sortBy === 'client' && styles.sortDropdownItemActive]}
-                    onPress={() => {
-                      setSortBy('client');
-                      setSortDropdownVisible(false);
-                    }}
-                  >
-                    <Ionicons name="person-outline" size={18} color={sortBy === 'client' ? '#160B53' : '#6B7280'} />
-                    <Text style={[styles.sortDropdownText, sortBy === 'client' && styles.sortDropdownTextActive]}>
-                      Sort by Client
-                    </Text>
-                    {sortBy === 'client' && <Ionicons name="checkmark" size={18} color="#160B53" />}
-                  </TouchableOpacity>
-                </View>
-              )}
+              <TouchableOpacity
+                style={[styles.sortButton, sortBy === 'time' && styles.sortButtonActive]}
+                onPress={() => setSortBy('time')}
+              >
+                <Ionicons name="time" size={18} color={sortBy === 'time' ? '#FFFFFF' : '#6B7280'} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sortButton, sortBy === 'client' && styles.sortButtonActive]}
+                onPress={() => setSortBy('client')}
+              >
+                <Ionicons name="person" size={18} color={sortBy === 'client' ? '#FFFFFF' : '#6B7280'} />
+              </TouchableOpacity>
             </View>
           </View>
+        </StylistSection>
+
+        {/* Calendar View */}
+        {showCalendar && (
+          <StylistSection>
+            <View style={styles.calendarCard}>
+              {/* Month Navigation */}
+              <View style={styles.monthHeader}>
+                <TouchableOpacity onPress={goToPreviousMonth} style={styles.monthNavButton}>
+                  <Ionicons name="chevron-back" size={24} color="#160B53" />
+                </TouchableOpacity>
+                <View style={styles.monthTitleContainer}>
+                  <Text style={styles.monthTitle}>
+                    {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </Text>
+                  <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
+                    <Text style={styles.todayButtonText}>Today</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity onPress={goToNextMonth} style={styles.monthNavButton}>
+                  <Ionicons name="chevron-forward" size={24} color="#160B53" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Week Day Headers */}
+              <View style={styles.weekDaysRow}>
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                  <View key={day} style={styles.weekDayCell}>
+                    <Text style={styles.weekDayText}>{day}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Calendar Grid */}
+              <View style={styles.calendarGrid}>
+                {calendarDates.map((date, index) => {
+                  const dateHasAppointments = hasAppointments(date);
+                  const dateIsToday = isToday(date);
+                  const dateIsSelected = isSelected(date);
+                  const dateIsCurrentMonth = isCurrentMonth(date);
+
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.dateCell,
+                        dateIsToday && styles.dateCellToday,
+                        dateIsSelected && styles.dateCellSelected,
+                      ]}
+                      onPress={() => {
+                        setSelectedDate(date);
+                        scrollToAppointmentList();
+                      }}
+                    >
+                      <Text style={[
+                        styles.dateText,
+                        !dateIsCurrentMonth && styles.dateTextOtherMonth,
+                        dateIsToday && styles.dateTextToday,
+                        dateIsSelected && styles.dateTextSelected,
+                      ]}>
+                        {date.getDate()}
+                      </Text>
+                      {dateHasAppointments && (
+                        <View style={[
+                          styles.appointmentDot,
+                          dateIsSelected && styles.appointmentDotSelected
+                        ]} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          </StylistSection>
+        )}
+
+        {/* Appointments List */}
+        <StylistSection>
+          <View ref={appointmentListRef} collapsable={false}>
+          {/* Section Header with Count */}
+          <View style={styles.listHeader}>
+            <Text style={styles.listTitle}>
+              {selectedDate 
+                ? `Appointments on ${selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                : selectedFilter === 'Today' 
+                  ? "Today's Appointments"
+                  : `${selectedFilter} Appointments`
+              }
+            </Text>
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>{filteredAppointments.length}</Text>
+            </View>
+          </View>
+
           {loading ? (
             <View style={styles.emptyState}>
               <ActivityIndicator size="large" color="#160B53" />
@@ -346,19 +600,42 @@ export default function StylistAppointmentsScreen() {
           ) : filteredAppointments.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="calendar-outline" size={64} color="#D1D5DB" />
-              <Text style={styles.emptyStateTitle}>No Appointments</Text>
+              <Text style={styles.emptyStateTitle}>No Appointments Found</Text>
               <Text style={styles.emptyStateText}>
-                {selectedFilter === 'Today' ? 'You have no appointments scheduled for today.' :
-                 selectedFilter === 'Upcoming' ? 'You have no upcoming scheduled appointments.' :
-                 selectedFilter === 'Confirmed' ? 'You have no confirmed appointments.' :
-                 selectedFilter === 'In-Service' ? 'You have no appointments in service.' :
-                 selectedFilter === 'Completed' ? 'You have no completed appointments.' :
-                 selectedFilter === 'Cancelled' ? 'You have no cancelled appointments.' :
-                 'No appointments found.'}
+                {selectedDate 
+                  ? `No appointments scheduled for ${selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}.`
+                  : selectedFilter === 'Today' 
+                    ? 'You have no appointments scheduled for today. Enjoy your free time!' 
+                    : selectedFilter === 'Upcoming' 
+                      ? 'You have no upcoming appointments scheduled.'
+                      : selectedFilter === 'Confirmed' 
+                        ? 'You have no confirmed appointments.'
+                        : selectedFilter === 'Completed' 
+                          ? 'You have no completed appointments yet.'
+                          : selectedFilter === 'Cancelled' 
+                            ? 'You have no cancelled appointments.'
+                            : 'Try adjusting your filters or search terms.'}
               </Text>
+              {(selectedDate || searchQuery) && (
+                <TouchableOpacity 
+                  style={styles.clearFiltersButton}
+                  onPress={() => {
+                    setSelectedDate(null);
+                    setSearchQuery('');
+                    setSelectedFilter('Today');
+                  }}
+                >
+                  <Text style={styles.clearFiltersText}>Clear All Filters</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
-            filteredAppointments.map((appointment) => (
+            <ScrollView 
+              style={styles.appointmentListScroll}
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}
+            >
+            {filteredAppointments.map((appointment) => (
             <TouchableOpacity 
               key={appointment.id} 
               style={styles.appointmentCard}
@@ -399,9 +676,17 @@ export default function StylistAppointmentsScreen() {
                     <View style={styles.appointmentInfoItem}>
                       <Ionicons name="time" size={14} color="#666" />
                       <Text style={styles.appointmentInfoText}>
-                        {appointment.appointmentTime || appointment.startTime || 'N/A'}
+                        {(appointment as any).appointmentTime || (appointment as any).startTime || 'N/A'}
                       </Text>
                     </View>
+                    {(appointment as any).branchName && (
+                      <View style={styles.appointmentInfoItem}>
+                        <Ionicons name="location" size={14} color="#666" />
+                        <Text style={styles.appointmentInfoText}>
+                          {(appointment as any).branchName}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
               </View>
@@ -439,7 +724,10 @@ export default function StylistAppointmentsScreen() {
                 />
               </View>
             </TouchableOpacity>
-          )))}
+          ))}
+            </ScrollView>
+          )}
+          </View>
         </StylistSection>
 
         {/* Appointment Details Modal */}
@@ -540,24 +828,91 @@ export default function StylistAppointmentsScreen() {
                     </View>
 
                     <View style={styles.modalDetailRow}>
+                      <Ionicons name="location-outline" size={20} color="#666" />
+                      <View style={styles.modalDetailContent}>
+                        <Text style={styles.modalDetailLabel}>Branch</Text>
+                        <Text style={styles.modalDetailValue}>
+                          {(selectedAppointment as any).branchName || 'Not specified'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.modalDetailRow}>
+                      <Ionicons name="hourglass-outline" size={20} color="#666" />
+                      <View style={styles.modalDetailContent}>
+                        <Text style={styles.modalDetailLabel}>Duration</Text>
+                        <Text style={styles.modalDetailValue}>
+                          {(() => {
+                            if ((selectedAppointment as any).serviceStylistPairs && (selectedAppointment as any).serviceStylistPairs.length > 0) {
+                              const totalMinutes = (selectedAppointment as any).serviceStylistPairs.reduce(
+                                (sum: number, pair: any) => sum + (pair.serviceDuration || 60), 
+                                0
+                              );
+                              const hours = Math.floor(totalMinutes / 60);
+                              const minutes = totalMinutes % 60;
+                              return hours > 0 ? `${hours}h ${minutes}m` : `${minutes} min`;
+                            }
+                            return (selectedAppointment as any).duration ? `${(selectedAppointment as any).duration} min` : 'N/A';
+                          })()}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.modalDetailRow}>
                       <Ionicons name="cash-outline" size={20} color="#666" />
                       <View style={styles.modalDetailContent}>
                         <Text style={styles.modalDetailLabel}>Price</Text>
                         <Text style={styles.modalDetailValue}>
-                          ₱{selectedAppointment.price || selectedAppointment.finalPrice || 0}
+                          ₱{(selectedAppointment as any).price || (selectedAppointment as any).finalPrice || 0}
                         </Text>
                       </View>
                     </View>
+
+                    <View style={styles.modalDetailRow}>
+                      <Ionicons name="card-outline" size={20} color="#666" />
+                      <View style={styles.modalDetailContent}>
+                        <Text style={styles.modalDetailLabel}>Payment Status</Text>
+                        <StylistBadge
+                          label={(selectedAppointment as any).paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                          variant={(selectedAppointment as any).paymentStatus === 'paid' ? 'completed' : 'default'}
+                          size="small"
+                        />
+                      </View>
+                    </View>
+
+                    {(selectedAppointment as any).clientPhone && (
+                      <View style={styles.modalDetailRow}>
+                        <Ionicons name="call-outline" size={20} color="#666" />
+                        <View style={styles.modalDetailContent}>
+                          <Text style={styles.modalDetailLabel}>Phone</Text>
+                          <Text style={styles.modalDetailValue}>
+                            {(selectedAppointment as any).clientPhone}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
 
                     <View style={styles.modalDetailRow}>
                       <Ionicons name="document-text-outline" size={20} color="#666" />
                       <View style={styles.modalDetailContent}>
                         <Text style={styles.modalDetailLabel}>Notes</Text>
                         <Text style={styles.modalDetailValue}>
-                          {selectedAppointment.notes || 'No notes'}
+                          {(selectedAppointment as any).notes || 'No notes'}
                         </Text>
                       </View>
                     </View>
+
+                    {(selectedAppointment as any).allergies && (
+                      <View style={styles.alertBanner}>
+                        <Ionicons name="warning" size={20} color="#EF4444" />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.alertTitle}>⚠️ Allergies / Special Notes</Text>
+                          <Text style={styles.alertText}>
+                            {(selectedAppointment as any).allergies}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
 
                     <View style={styles.modalDetailRow}>
                       <Ionicons name="checkmark-circle-outline" size={20} color="#666" />
@@ -600,6 +955,375 @@ const styles = StyleSheet.create({
   },
   searchSection: {
     marginTop: 16,
+  },
+  // Scrollable Appointment List (responsive to screen height)
+  appointmentListScroll: {
+    maxHeight: Dimensions.get('window').height * 0.5, // 50% of screen height
+  },
+  // Stats Summary Card
+  statsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  statsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  statsTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  statsDate: {
+    fontSize: 12,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statNumber: {
+    fontSize: 24,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
+  },
+  nextAppointmentBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F3F4F6',
+    padding: 12,
+    borderRadius: 8,
+  },
+  nextAppointmentText: {
+    fontSize: 13,
+    fontFamily: FONTS.medium,
+    color: '#160B53',
+    flex: 1,
+  },
+  // Date Picker Carousel
+  datePickerContainer: {
+    paddingRight: 16,
+  },
+  datePickerItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginRight: 8,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    minWidth: 70,
+  },
+  datePickerItemSelected: {
+    backgroundColor: APP_CONFIG.primaryColor,
+  },
+  datePickerItemToday: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  datePickerDay: {
+    fontSize: 12,
+    fontFamily: FONTS.medium,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  datePickerDaySelected: {
+    color: '#FFFFFF',
+  },
+  datePickerDate: {
+    fontSize: 18,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+  },
+  datePickerDateSelected: {
+    color: '#FFFFFF',
+  },
+  // Date Filter Banner
+  dateFilterBanner: {
+    backgroundColor: '#EEF2FF',
+    borderLeftWidth: 4,
+    borderLeftColor: APP_CONFIG.primaryColor,
+    borderRadius: 8,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dateFilterInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  dateFilterText: {
+    fontSize: 13,
+    fontFamily: FONTS.medium,
+    color: '#160B53',
+    flex: 1,
+  },
+  clearDateButton: {
+    padding: 4,
+  },
+  // Calendar Styles
+  calendarCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  monthHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  monthNavButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  monthTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  monthTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  todayButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: APP_CONFIG.primaryColor,
+  },
+  todayButtonText: {
+    fontSize: 12,
+    fontFamily: FONTS.medium,
+    color: '#FFFFFF',
+  },
+  weekDaysRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  weekDayCell: {
+    width: (width - 56) / 7,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  weekDayText: {
+    fontSize: 12,
+    fontFamily: FONTS.semiBold,
+    color: '#6B7280',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dateCell: {
+    width: (width - 56) / 7,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    marginBottom: 4,
+    position: 'relative',
+  },
+  dateCellToday: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  dateCellSelected: {
+    backgroundColor: APP_CONFIG.primaryColor,
+  },
+  dateText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#111827',
+  },
+  dateTextOtherMonth: {
+    color: '#D1D5DB',
+  },
+  dateTextToday: {
+    color: '#F59E0B',
+    fontFamily: FONTS.bold,
+  },
+  dateTextSelected: {
+    color: '#FFFFFF',
+    fontFamily: FONTS.bold,
+  },
+  appointmentDot: {
+    position: 'absolute',
+    bottom: 4,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: APP_CONFIG.primaryColor,
+  },
+  appointmentDotSelected: {
+    backgroundColor: '#FFFFFF',
+  },
+  // Quick Filter Chips with Count Badges
+  quickFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 8,
+  },
+  quickFilterChipActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  quickFilterText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#6B7280',
+  },
+  quickFilterTextActive: {
+    color: '#FFFFFF',
+  },
+  quickFilterBadge: {
+    backgroundColor: '#E5E7EB',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 24,
+    alignItems: 'center',
+  },
+  quickFilterBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  quickFilterBadgeText: {
+    fontSize: 12,
+    fontFamily: FONTS.semiBold,
+    color: '#374151',
+  },
+  quickFilterBadgeTextActive: {
+    color: '#FFFFFF',
+  },
+  // Search and Sort Row
+  searchSortRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  searchBarContainer: {
+    flex: 1,
+  },
+  sortButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  sortButtonActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  // List Header
+  listHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  listTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+  },
+  countBadge: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  countText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
+  },
+  clearFiltersButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderRadius: 8,
+  },
+  clearFiltersText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#FFFFFF',
+  },
+  // Alert Banner for Allergies/Special Notes
+  alertBanner: {
+    backgroundColor: '#FEF2F2',
+    borderLeftWidth: 4,
+    borderLeftColor: '#EF4444',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  alertTitle: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#EF4444',
+    marginBottom: 4,
+  },
+  alertText: {
+    fontSize: 13,
+    fontFamily: FONTS.regular,
+    color: '#991B1B',
+    lineHeight: 18,
   },
   section: {
     paddingHorizontal: 16,
@@ -976,7 +1700,7 @@ const styles = StyleSheet.create({
   },
   filterTabs: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 4,
   },
   // Enhanced Modal Styles
   modalBackdrop: {

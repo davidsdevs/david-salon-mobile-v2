@@ -252,8 +252,8 @@ export default function StylistClientsScreen() {
             })}
           </View>
         </StylistSection>
-          
-        {/* Clients List */}
+
+        {/* Client List */}
         <StylistSection>
           {loading ? (
             <View style={styles.loadingContainer}>
@@ -262,9 +262,28 @@ export default function StylistClientsScreen() {
             </View>
           ) : filteredClients.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Ionicons name="people-outline" size={64} color="#9CA3AF" />
-              <Text style={styles.emptyTitle}>No clients found</Text>
-              <Text style={styles.emptyMessage}>You don't have any clients yet or no clients match your search.</Text>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="people" size={48} color="#EC4899" />
+              </View>
+              <Text style={styles.emptyTitle}>
+                {searchQuery ? 'No Matching Clients' : 'No Clients Yet'}
+              </Text>
+              <Text style={styles.emptyMessage}>
+                {searchQuery 
+                  ? `No clients match "${searchQuery}". Try a different search term.`
+                  : selectedFilter !== 'All Clients'
+                    ? `You don't have any ${selectedFilter.replace('X - ', '').replace('R - ', '').replace('TR - ', '').toLowerCase()}s assigned to you yet.`
+                    : 'You haven\'t served any clients yet. New clients will appear here after their first appointment.'}
+              </Text>
+              {searchQuery && (
+                <TouchableOpacity 
+                  style={styles.clearSearchButton}
+                  onPress={() => setSearchQuery('')}
+                >
+                  <Ionicons name="close-circle" size={18} color="#160B53" />
+                  <Text style={styles.clearSearchText}>Clear Search</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             filteredClients.map((client) => {
@@ -307,36 +326,63 @@ export default function StylistClientsScreen() {
     );
   }
 
+  // Calculate stats
+  const stats = {
+    total: clients.length,
+    newClients: clients.filter(c => c.type === 'X - New Client').length,
+    regular: clients.filter(c => c.type === 'R - Regular').length,
+    transfer: clients.filter(c => c.type === 'TR - Transfer').length,
+  };
   // For mobile, use ScreenWrapper with header
   return (
-    <ScreenWrapper title="Clients" userType="stylist">
+    <ScreenWrapper title="Clients" userType="stylist" showBackButton={true}>
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Search and Filters */}
         <StylistSection style={styles.searchSection}>
           <StylistSearchBar
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search Clients"
+            placeholder="Search by name..."
           />
           
-          {/* Filter Tabs */}
+          {/* Filter Tabs with Counts */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.filterTabs}>
               {filterOptions.map((filter) => {
-                const getVariant = () => {
-                  if (filter === 'X - New Client') return 'new-client';
-                  if (filter === 'R - Regular') return 'regular';
-                  if (filter === 'TR - Transfer') return 'transfer';
-                  return 'default';
-                };
+                const count = filter === 'All Clients' ? stats.total :
+                             filter === 'X - New Client' ? stats.newClients :
+                             filter === 'R - Regular' ? stats.regular :
+                             filter === 'TR - Transfer' ? stats.transfer : 0;
+                
                 return (
-                  <StylistFilterTab
+                  <TouchableOpacity
                     key={filter}
-                    label={filter}
-                    isActive={selectedFilter === filter}
+                    style={[
+                      styles.quickFilterChip,
+                      selectedFilter === filter && styles.quickFilterChipActive
+                    ]}
                     onPress={() => setSelectedFilter(filter)}
-                    variant={getVariant()}
-                  />
+                  >
+                    <Text style={[
+                      styles.quickFilterText,
+                      selectedFilter === filter && styles.quickFilterTextActive
+                    ]}>
+                      {filter}
+                    </Text>
+                    {count > 0 && (
+                      <View style={[
+                        styles.quickFilterBadge,
+                        selectedFilter === filter && styles.quickFilterBadgeActive
+                      ]}>
+                        <Text style={[
+                          styles.quickFilterBadgeText,
+                          selectedFilter === filter && styles.quickFilterBadgeTextActive
+                        ]}>
+                          {count}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -345,6 +391,12 @@ export default function StylistClientsScreen() {
           
         {/* Clients List */}
         <StylistSection>
+          <View style={styles.listHeader}>
+            <Text style={styles.listTitle}>All Clients</Text>
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>{filteredClients.length}</Text>
+            </View>
+          </View>
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#160B53" />
@@ -352,9 +404,28 @@ export default function StylistClientsScreen() {
             </View>
           ) : filteredClients.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Ionicons name="people-outline" size={64} color="#9CA3AF" />
-              <Text style={styles.emptyTitle}>No clients found</Text>
-              <Text style={styles.emptyMessage}>You don't have any clients yet or no clients match your search.</Text>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="people" size={48} color="#EC4899" />
+              </View>
+              <Text style={styles.emptyTitle}>
+                {searchQuery ? 'No Matching Clients' : 'No Clients Yet'}
+              </Text>
+              <Text style={styles.emptyMessage}>
+                {searchQuery 
+                  ? `No clients match "${searchQuery}". Try a different search term.`
+                  : selectedFilter !== 'All Clients'
+                    ? `You don't have any ${selectedFilter.replace('X - ', '').replace('R - ', '').replace('TR - ', '').toLowerCase()}s assigned to you yet.`
+                    : 'You haven\'t served any clients yet. New clients will appear here after their first appointment.'}
+              </Text>
+              {searchQuery && (
+                <TouchableOpacity 
+                  style={styles.clearSearchButton}
+                  onPress={() => setSearchQuery('')}
+                >
+                  <Ionicons name="close-circle" size={18} color="#160B53" />
+                  <Text style={styles.clearSearchText}>Clear Search</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             filteredClients.map((client) => {
@@ -403,8 +474,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
+  // Scrollable Client List (responsive to screen height)
+  clientListScroll: {
+    maxHeight: Dimensions.get('window').height * 0.5, // 50% of screen height
+  },
   searchSection: {
     marginTop: 16,
+  },
+  legendHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  legendHeaderText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
   },
   webContainer: {
     flex: 1,
@@ -421,7 +510,7 @@ const styles = StyleSheet.create({
   },
   filterTabs: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 4,
   },
   clientCard: {
     flexDirection: 'row',
@@ -516,11 +605,19 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     paddingHorizontal: 24,
   },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FCE7F3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
   emptyTitle: {
     fontSize: 18,
     color: '#160B53',
     fontFamily: FONTS.bold,
-    marginTop: 16,
     marginBottom: 8,
   },
   emptyMessage: {
@@ -528,6 +625,154 @@ const styles = StyleSheet.create({
     color: '#666',
     fontFamily: FONTS.regular,
     textAlign: 'center',
-    lineHeight: 20,
+    maxWidth: 280,
+  },
+  clearSearchButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#160B53',
+    borderRadius: 8,
+  },
+  clearSearchText: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    fontFamily: FONTS.semiBold,
+  },
+  // Enhanced Stats Card (consistent with other pages)
+  statsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  statsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  statsTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  totalBadge: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  totalBadgeText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  statNumber: {
+    fontSize: 20,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  // List Header (consistent with other pages)
+  listHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  listTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+  },
+  countBadge: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  countText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
+  },
+  // Quick Filter Chips with Count Badges (consistent with Appointments page)
+  quickFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  quickFilterChipActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  quickFilterText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#374151',
+  },
+  quickFilterTextActive: {
+    color: '#FFFFFF',
+  },
+  quickFilterBadge: {
+    marginLeft: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickFilterBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  quickFilterBadgeText: {
+    fontSize: 12,
+    fontFamily: FONTS.bold,
+    color: APP_CONFIG.primaryColor,
+  },
+  quickFilterBadgeTextActive: {
+    color: '#FFFFFF',
   },
 });

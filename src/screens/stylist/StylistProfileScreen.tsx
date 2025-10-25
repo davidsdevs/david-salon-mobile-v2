@@ -435,72 +435,89 @@ export default function StylistProfileScreen() {
   return (
     <ScreenWrapper title="Profile" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Profile Header Card */}
-        <StylistSection style={styles.profileSection}>
-          <View style={styles.profileCard}>
-            <View style={styles.profileHeader}>
-              <View style={styles.avatarContainer}>
-                <View style={styles.avatar}>
-                  <View style={styles.avatarGradient}>
+        {/* Profile Header Card - Enhanced */}
+        <StylistSection>
+          <View style={styles.profileHeaderCard}>
+            {/* Background Gradient */}
+            <View style={styles.profileHeaderBackground}>
+              <View style={styles.avatarSection}>
+                <View style={styles.avatarContainer}>
+                  <View style={styles.avatar}>
                     {user?.profileImage ? (
                       <Image source={{ uri: user.profileImage }} style={styles.profileImage} />
                     ) : (
-                      <Ionicons name="person" size={40} color="#FFFFFF" />
+                      <View style={styles.avatarPlaceholder}>
+                        <Ionicons name="person" size={48} color="#FFFFFF" />
+                      </View>
                     )}
                   </View>
+                  <TouchableOpacity 
+                    style={styles.editAvatarButton}
+                    onPress={handleUploadProfileImage}
+                    disabled={uploadingImage}
+                  >
+                    {uploadingImage ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Ionicons name="camera" size={16} color="#FFFFFF" />
+                    )}
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity 
-                  style={styles.editAvatarButton}
-                  onPress={handleUploadProfileImage}
-                  disabled={uploadingImage}
-                >
-                  {uploadingImage ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Ionicons name="camera" size={14} color="#FFFFFF" />
-                  )}
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.profileInfo}>
-                <Text style={styles.profileName}>{stylistData.name}</Text>
-                <Text style={styles.profileRole}>Stylist</Text>
               </View>
             </View>
             
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <View style={styles.statIconCircle}>
-                  <Ionicons name="people" size={18} color="#160B53" />
+            {/* Profile Info */}
+            <View style={styles.profileInfoSection}>
+              <Text style={styles.profileName}>{stylistData.name}</Text>
+              <View style={styles.profileRoleBadge}>
+                <Ionicons name="cut" size={14} color={APP_CONFIG.primaryColor} />
+                <Text style={styles.profileRole}>Professional Stylist</Text>
+              </View>
+              <View style={styles.profileMetaRow}>
+                <View style={styles.profileMetaItem}>
+                  <Ionicons name="location" size={14} color="#6B7280" />
+                  <Text style={styles.profileMetaText}>{stylistData.branch}</Text>
+                </View>
+                <View style={styles.profileMetaItem}>
+                  <Ionicons name="calendar" size={14} color="#6B7280" />
+                  <Text style={styles.profileMetaText}>Joined {stylistData.joinedDate}</Text>
+                </View>
+              </View>
+            </View>
+            
+            {/* Stats Grid */}
+            <View style={styles.statsGrid}>
+              <View style={styles.statCard}>
+                <View style={[styles.statIconContainer, { backgroundColor: '#EEF2FF' }]}>
+                  <Ionicons name="people" size={20} color="#6366F1" />
                 </View>
                 <Text style={styles.statNumber}>{stylistData.totalClients}</Text>
-                <Text style={styles.statLabel}>Clients</Text>
+                <Text style={styles.statLabel}>Total Clients</Text>
               </View>
-              <View style={styles.statItem}>
-                <View style={styles.statIconCircle}>
-                  <Ionicons name="checkmark-circle" size={18} color="#160B53" />
+              <View style={styles.statCard}>
+                <View style={[styles.statIconContainer, { backgroundColor: '#D1FAE5' }]}>
+                  <Ionicons name="cash" size={20} color="#10B981" />
                 </View>
-                <Text style={styles.statNumber}>{(user as any)?.totalEarnings || 0}</Text>
+                <Text style={styles.statNumber}>₱{(user as any)?.totalEarnings || 0}</Text>
                 <Text style={styles.statLabel}>Earnings</Text>
               </View>
-              <View style={styles.statItem}>
-                <View style={styles.statIconCircle}>
-                  <Ionicons name="time" size={18} color="#160B53" />
+              <View style={styles.statCard}>
+                <View style={[styles.statIconContainer, { backgroundColor: '#FEF3C7' }]}>
+                  <Ionicons name="time" size={20} color="#F59E0B" />
                 </View>
                 <Text style={styles.statNumber}>{stylistData.yearsOfExperience}</Text>
-                <Text style={styles.statLabel}>Years</Text>
+                <Text style={styles.statLabel}>Years Exp.</Text>
               </View>
             </View>
           </View>
         </StylistSection>
 
-        {/* Information Section */}
+        {/* Information Section - Enhanced */}
         <StylistSection>
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="information-circle" size={20} color="#160B53" />
-              <Text style={styles.sectionTitle}>Personal Information</Text>
-            </View>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Personal Information</Text>
+          </View>
+          <View style={styles.infoCard}>
             
             <View style={styles.infoRow}>
               <View style={styles.iconCircle}>
@@ -532,39 +549,84 @@ export default function StylistProfileScreen() {
               </View>
             </View>
 
-            <View style={styles.infoRow}>
-              <View style={styles.iconCircle}>
-                <Ionicons name="calendar-outline" size={18} color="#160B53" />
-              </View>
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Joined Date</Text>
-                <Text style={styles.infoValue}>{stylistData.joinedDate}</Text>
-              </View>
-            </View>
           </View>
         </StylistSection>
 
-        {/* Quick Access Section */}
-        <StylistSection>
-          <View style={styles.sectionCard}>
+        {/* Services Section */}
+        {services.length > 0 && (
+          <StylistSection>
             <View style={styles.sectionHeader}>
-              <Ionicons name="grid" size={20} color="#160B53" />
-              <Text style={styles.sectionTitle}>Quick Access</Text>
+              <Text style={styles.sectionTitle}>Specializations</Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countText}>{services.length}</Text>
+              </View>
             </View>
-            
+            <View style={styles.servicesGrid}>
+              {services.map((service, index) => (
+                <View key={index} style={styles.serviceChip}>
+                  <Ionicons name="checkmark-circle" size={16} color={APP_CONFIG.primaryColor} />
+                  <Text style={styles.serviceChipText}>{service}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.servicesHint}>
+              <Ionicons name="information-circle-outline" size={14} color="#6B7280" />
+              <Text style={styles.servicesHintText}>
+                These are the services you're qualified to provide
+              </Text>
+            </View>
+          </StylistSection>
+        )}
+
+        {/* Quick Links */}
+        <StylistSection>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Quick Links</Text>
+          </View>
+          <View style={styles.quickLinksGrid}>
             <TouchableOpacity
-              style={styles.optionCard}
+              style={styles.quickLinkCard}
               onPress={() => (navigation as any).navigate('StylistClients')}
             >
+              <View style={styles.quickLinkIcon}>
+                <Ionicons name="people" size={24} color={APP_CONFIG.primaryColor} />
+              </View>
+              <Text style={styles.quickLinkTitle}>My Clients</Text>
+              <Text style={styles.quickLinkSubtitle}>View & manage</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickLinkCard}
+              onPress={() => (navigation as any).navigate('StylistPortfolio')}
+            >
+              <View style={styles.quickLinkIcon}>
+                <Ionicons name="images" size={24} color={APP_CONFIG.primaryColor} />
+              </View>
+              <Text style={styles.quickLinkTitle}>Portfolio</Text>
+              <Text style={styles.quickLinkSubtitle}>My work</Text>
+            </TouchableOpacity>
+          </View>
+        </StylistSection>
+
+        {/* Settings & Account */}
+        <StylistSection>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Settings & Account</Text>
+          </View>
+          <View style={styles.optionsCard}>
+            <TouchableOpacity
+              style={styles.optionCard}
+              onPress={handleEditProfile}
+            >
               <View style={styles.optionLeft}>
                 <View style={styles.iconContainer}>
                   <Ionicons 
-                    name="people" 
+                    name="person-outline" 
                     size={22} 
                     color={APP_CONFIG.primaryColor} 
                   />
                 </View>
-                <Text style={styles.optionTitle}>My Clients</Text>
+                <Text style={styles.optionTitle}>Edit Profile</Text>
               </View>
               <Ionicons 
                 name="chevron-forward" 
@@ -575,17 +637,17 @@ export default function StylistProfileScreen() {
 
             <TouchableOpacity
               style={styles.optionCard}
-              onPress={() => (navigation as any).navigate('StylistPortfolio')}
+              onPress={handleChangePassword}
             >
               <View style={styles.optionLeft}>
                 <View style={styles.iconContainer}>
                   <Ionicons 
-                    name="images" 
+                    name="lock-closed-outline" 
                     size={22} 
                     color={APP_CONFIG.primaryColor} 
                   />
                 </View>
-                <Text style={styles.optionTitle}>My Portfolios</Text>
+                <Text style={styles.optionTitle}>Change Password</Text>
               </View>
               <Ionicons 
                 name="chevron-forward" 
@@ -593,49 +655,54 @@ export default function StylistProfileScreen() {
                 color="#9CA3AF" 
               />
             </TouchableOpacity>
-          </View>
-        </StylistSection>
 
-        {/* Settings Section */}
-        <StylistSection>
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="settings" size={20} color="#160B53" />
-              <Text style={styles.sectionTitle}>Account Settings</Text>
-            </View>
-            
-            {profileOptions.map((option, index) => (
-              <View key={option.id}>
-                <TouchableOpacity
-                  style={styles.optionCard}
-                  onPress={option.onPress}
-                >
-                  <View style={styles.optionLeft}>
-                    <View style={[
-                      styles.iconContainer,
-                      option.isDestructive && styles.iconContainerDestructive
-                    ]}>
-                      <Ionicons 
-                        name={option.icon as any} 
-                        size={22} 
-                        color={option.isDestructive ? '#EF4444' : APP_CONFIG.primaryColor} 
-                      />
-                    </View>
-                    <Text style={[
-                      styles.optionTitle,
-                      option.isDestructive && styles.optionTitleDestructive
-                    ]}>
-                      {option.title}
-                    </Text>
-                  </View>
+            <TouchableOpacity
+              style={styles.optionCard}
+              onPress={handleNotificationSettings}
+            >
+              <View style={styles.optionLeft}>
+                <View style={styles.iconContainer}>
                   <Ionicons 
-                    name="chevron-forward" 
-                    size={20} 
-                    color="#9CA3AF" 
+                    name="notifications-outline" 
+                    size={22} 
+                    color={APP_CONFIG.primaryColor} 
                   />
-                </TouchableOpacity>
+                </View>
+                <Text style={styles.optionTitle}>Notifications</Text>
               </View>
-            ))}
+              <Ionicons 
+                name="chevron-forward" 
+                size={20} 
+                color="#9CA3AF" 
+              />
+            </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={styles.optionDivider} />
+
+            {/* Logout */}
+            <TouchableOpacity
+              style={styles.optionCard}
+              onPress={handleLogout}
+            >
+              <View style={styles.optionLeft}>
+                <View style={[styles.iconContainer, styles.iconContainerDestructive]}>
+                  <Ionicons 
+                    name="log-out-outline" 
+                    size={22} 
+                    color="#EF4444" 
+                  />
+                </View>
+                <Text style={[styles.optionTitle, styles.optionTitleDestructive]}>
+                  Logout
+                </Text>
+              </View>
+              <Ionicons 
+                name="chevron-forward" 
+                size={20} 
+                color="#9CA3AF" 
+              />
+            </TouchableOpacity>
           </View>
         </StylistSection>
       </ScrollView>
@@ -940,5 +1007,215 @@ const styles = StyleSheet.create({
     // They are ignored on native platforms
     wordBreak: 'break-word' as any,
     overflowWrap: 'anywhere' as any,
+  },
+  // Enhanced Profile Header Styles
+  profileHeaderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  profileHeaderBackground: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    paddingTop: 24,
+    paddingBottom: 60,
+  },
+  avatarSection: {
+    alignItems: 'center',
+  },
+  avatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: APP_CONFIG.primaryColor,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileInfoSection: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginTop: -40,
+  },
+  profileRoleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginTop: 8,
+  },
+  profileMetaRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 12,
+  },
+  profileMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  profileMetaText: {
+    fontSize: 12,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 8,
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  // Section Header (consistent with other pages)
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+  },
+  countBadge: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  countText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
+  },
+  // Info Card
+  infoCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  // Services Grid
+  servicesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  serviceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  serviceChipText: {
+    fontSize: 13,
+    fontFamily: FONTS.medium,
+    color: '#160B53',
+  },
+  servicesHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  servicesHintText: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontFamily: FONTS.medium,
+    flex: 1,
+  },
+  // Options Card
+  optionsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  optionDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 8,
+  },
+  // Quick Links Grid
+  quickLinksGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  quickLinkCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  quickLinkIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  quickLinkTitle: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+    marginBottom: 4,
+  },
+  quickLinkSubtitle: {
+    fontSize: 12,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
   },
 });

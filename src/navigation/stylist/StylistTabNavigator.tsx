@@ -10,7 +10,7 @@ import { StylistTabParamList } from '../../types';
 import StylistDashboardScreen from '../../screens/stylist/StylistDashboardScreen';
 import StylistAppointmentsScreen from '../../screens/stylist/StylistAppointmentsScreen';
 import StylistScheduleScreen from '../../screens/stylist/StylistScheduleScreen';
-import StylistPortfolioScreen from '../../screens/stylist/StylistPortfolioScreen';
+import StylistEarningsScreen from '../../screens/stylist/StylistEarningsScreen';
 import StylistProfileScreen from '../../screens/stylist/StylistProfileScreen';
 
 const Tab = createBottomTabNavigator<StylistTabParamList>();
@@ -34,20 +34,15 @@ const TabIcon = ({
       home: focused ? 'home' : 'home-outline',
       calendar: focused ? 'calendar' : 'calendar-outline',
       schedule: focused ? 'time' : 'time-outline',
-      portfolio: focused ? 'images' : 'images-outline',
+      earnings: focused ? 'wallet' : 'wallet-outline',
       profile: focused ? 'person' : 'person-outline',
     };
     return iconMap[iconName as keyof typeof iconMap] || 'home-outline';
   };
 
-  // Special sizing for home button on mobile
-  const isHomeButton = iconName === 'home' && !isWeb;
-  const iconSize = isHomeButton 
-    ? (isTablet ? 40 : isSmallScreen ? 34 : 36) // Bigger for home
-    : (isTablet ? 32 : isSmallScreen ? 26 : 28);
-  const containerSize = isHomeButton 
-    ? (isTablet ? 32 : isSmallScreen ? 28 : 30) // Much bigger container for home
-    : (isTablet ? 24 : isSmallScreen ? 20 : 22);
+  // Consistent icon sizing for all tabs
+  const iconSize = isTablet ? 32 : isSmallScreen ? 26 : 28;
+  const containerSize = isTablet ? 24 : isSmallScreen ? 20 : 22;
 
   return (
     <View style={{
@@ -62,28 +57,18 @@ const TabIcon = ({
           borderRadius: containerSize,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: isHomeButton 
-            ? (focused ? APP_CONFIG.primaryColor : '#F3F4F6') // Always show background for home
-            : (focused ? APP_CONFIG.primaryColor : 'transparent'),
-          shadowColor: isHomeButton 
-            ? (focused ? APP_CONFIG.primaryColor : '#9CA3AF') // Always show shadow for home
-            : (focused ? APP_CONFIG.primaryColor : 'transparent'),
-          shadowOffset: { width: 0, height: isHomeButton ? 8 : 3 }, // Enhanced shadow for floating effect
-          shadowOpacity: isHomeButton ? 0.6 : 0.3, // Stronger shadow opacity
-          shadowRadius: isHomeButton ? 12 : 6, // Larger shadow radius
-          elevation: isHomeButton ? 12 : (focused ? 6 : 0), // Higher elevation
-          borderWidth: isHomeButton && !focused ? 1 : 0,
-          borderColor: isHomeButton && !focused ? '#E5E7EB' : 'transparent',
-          marginTop: isHomeButton ? -20 : 0, // Move home button much higher for floating effect
+          backgroundColor: focused ? APP_CONFIG.primaryColor : 'transparent',
+          shadowColor: focused ? APP_CONFIG.primaryColor : 'transparent',
+          shadowOffset: { width: 0, height: 3 },
+          shadowOpacity: 0.3,
+          shadowRadius: 6,
+          elevation: focused ? 6 : 0,
         }}
       >
         <Ionicons 
           name={getIconName() as any}
           size={iconSize} 
-          color={isHomeButton 
-            ? (focused ? '#FFFFFF' : APP_CONFIG.primaryColor) // Different color for home
-            : (focused ? '#FFFFFF' : '#64748B')
-          } 
+          color={focused ? '#FFFFFF' : '#64748B'} 
         />
       </View>
     </View>
@@ -128,6 +113,18 @@ export default function StylistTabNavigator() {
       }}
     >
       <Tab.Screen 
+        name="StylistDashboard" 
+        component={StylistDashboardScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon 
+              focused={focused} 
+              iconName="home" 
+            />
+          ),
+        }}
+      />
+      <Tab.Screen 
         name="StylistAppointments" 
         component={StylistAppointmentsScreen}
         options={{
@@ -152,25 +149,13 @@ export default function StylistTabNavigator() {
         }}
       />
       <Tab.Screen 
-        name="StylistDashboard" 
-        component={StylistDashboardScreen}
+        name="StylistEarnings" 
+        component={StylistEarningsScreen}
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon 
               focused={focused} 
-              iconName="home" 
-            />
-          ),
-        }}
-      />
-      <Tab.Screen 
-        name="StylistPortfolio" 
-        component={StylistPortfolioScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon 
-              focused={focused} 
-              iconName="portfolio" 
+              iconName="earnings" 
             />
           ),
         }}

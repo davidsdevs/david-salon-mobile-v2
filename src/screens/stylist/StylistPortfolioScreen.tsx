@@ -35,6 +35,8 @@ interface PortfolioItem {
   title: string;
   description?: string;
   createdAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string;
 }
 
 export default function StylistPortfolioScreen() {
@@ -84,6 +86,8 @@ export default function StylistPortfolioScreen() {
             title: data['title'] || 'Untitled',
             description: data['description'] || '',
             createdAt: data['createdAt']?.toDate().toISOString() || new Date().toISOString(),
+            status: data['status'] || 'pending',
+            rejectionReason: data['rejectionReason'] || '',
           });
         });
 
@@ -110,7 +114,24 @@ export default function StylistPortfolioScreen() {
     };
   }, [user?.uid, user?.id]);
 
-  const filteredItems = portfolioItems
+  // Separate approved and pending items
+  const approvedItems = portfolioItems.filter(i => i.status === 'approved');
+  const pendingItems = portfolioItems.filter(i => i.status === 'pending');
+  const rejectedItems = portfolioItems.filter(i => i.status === 'rejected');
+
+  // Calculate stats (only approved items)
+  const stats = {
+    total: approvedItems.length,
+    pending: pendingItems.length,
+    rejected: rejectedItems.length,
+    haircut: approvedItems.filter(i => i.category === 'Haircut').length,
+    color: approvedItems.filter(i => i.category === 'Color').length,
+    styling: approvedItems.filter(i => i.category === 'Styling').length,
+    treatment: approvedItems.filter(i => i.category === 'Treatment').length,
+  };
+
+  // Filter only approved items for display
+  const filteredItems = approvedItems
     .filter(item => {
       const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
       const matchesSearch = searchQuery === '' || 
@@ -208,14 +229,14 @@ export default function StylistPortfolioScreen() {
 
   // For mobile, use ScreenWrapper with header
   return (
-    <ScreenWrapper title="Portfolio" userType="stylist">
+    <ScreenWrapper title="Portfolio" userType="stylist" showBackButton={true}>
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Search */}
         <StylistSection style={styles.searchSection}>
           <StylistSearchBar
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search Portfolio"
+            placeholder="Search by title..."
           />
         </StylistSection>
 
@@ -223,31 +244,100 @@ export default function StylistPortfolioScreen() {
         <StylistSection style={styles.categorySection}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.categoryContainer}>
-              {categories.map((category) => (
-                <TouchableOpacity
-                  key={category}
-                  style={[
-                    styles.categoryButton,
-                    selectedCategory === category && styles.categoryButtonActive,
-                  ]}
-                  onPress={() => setSelectedCategory(category)}
-                >
-                  <Text
+              {categories.map((category) => {
+                const count = category === 'All' ? stats.total :
+                             category === 'Haircut' ? stats.haircut :
+                             category === 'Color' ? stats.color :
+                             category === 'Styling' ? stats.styling :
+                             category === 'Treatment' ? stats.treatment : 0;
+                
+                return (
+                  <TouchableOpacity
+                    key={category}
                     style={[
-                      styles.categoryButtonText,
-                      selectedCategory === category && styles.categoryButtonTextActive,
+                      styles.quickFilterChip,
+                      selectedCategory === category && styles.quickFilterChipActive,
                     ]}
+                    onPress={() => setSelectedCategory(category)}
                   >
-                    {category}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.quickFilterText,
+                        selectedCategory === category && styles.quickFilterTextActive,
+                      ]}
+                    >
+                      {category}
+                    </Text>
+                    {count > 0 && (
+                      <View style={[
+                        styles.quickFilterBadge,
+                        selectedCategory === category && styles.quickFilterBadgeActive
+                      ]}>
+                        <Text style={[
+                          styles.quickFilterBadgeText,
+                          selectedCategory === category && styles.quickFilterBadgeTextActive
+                        ]}>
+                          {count}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </ScrollView>
         </StylistSection>
 
-        {/* Gallery Grid */}
+        {/* Pending Approval Section */}
+        {pendingItems.length > 0 && (
+          <StylistSection>
+            <View style={styles.listHeader}>
+              <Text style={styles.listTitle}>Pending Approval</Text>
+              <View style={styles.pendingBadge}>
+                <Ionicons name="time-outline" size={14} color="#F59E0B" />
+                <Text style={styles.pendingBadgeText}>{pendingItems.length}</Text>
+              </View>
+            </View>
+            <View style={styles.pendingInfo}>
+              <Ionicons name="information-circle" size={20} color="#F59E0B" />
+              <Text style={styles.pendingInfoText}>
+                Waiting for branch manager approval
+              </Text>
+            </View>
+            <View style={styles.galleryGrid}>
+              {pendingItems.map((item) => (
+                <View key={item.id} style={styles.galleryCard}>
+                  <View style={styles.imageContainer}>
+                    {item.imageUrl ? (
+                      <Image source={{ uri: item.imageUrl }} style={styles.portfolioImage} />
+                    ) : (
+                      <Ionicons name="image" size={50} color="#CCCCCC" />
+                    )}
+                    <View style={styles.pendingOverlay}>
+                      <Ionicons name="time" size={24} color="#FFFFFF" />
+                      <Text style={styles.pendingOverlayText}>Pending</Text>
+                    </View>
+                  </View>
+                  <View style={styles.galleryCardInfo}>
+                    <Text style={styles.galleryCardTitle}>{item.title}</Text>
+                    <View style={styles.galleryCardFooter}>
+                      <Text style={styles.categoryTag}>{item.category}</Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </StylistSection>
+        )}
+
+        {/* Approved Gallery Grid */}
         <StylistSection>
+          <View style={styles.listHeader}>
+            <Text style={styles.listTitle}>Approved Work</Text>
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>{filteredItems.length}</Text>
+            </View>
+          </View>
           {loading ? (
             <View style={styles.emptyState}>
               <ActivityIndicator size="large" color="#160B53" />
@@ -255,15 +345,31 @@ export default function StylistPortfolioScreen() {
             </View>
           ) : filteredItems.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="images-outline" size={64} color="#D1D5DB" />
-              <Text style={styles.emptyStateTitle}>No Portfolio Items</Text>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="images" size={48} color="#EC4899" />
+              </View>
+              <Text style={styles.emptyStateTitle}>
+                {selectedCategory === 'All' ? 'Start Your Portfolio!' : `No ${selectedCategory} Items Yet`}
+              </Text>
               <Text style={styles.emptyStateText}>
                 {selectedCategory === 'All' 
-                  ? 'Upload your first work to showcase your skills!' 
-                  : `No ${selectedCategory.toLowerCase()} items in your portfolio yet.`}
+                  ? 'Upload photos of your best work to showcase your skills and attract more clients.'
+                  : `No ${selectedCategory.toLowerCase()} items in your portfolio yet. Try uploading some ${selectedCategory.toLowerCase()} work!`}
               </Text>
+              <TouchableOpacity 
+                style={styles.uploadPromptButton}
+                onPress={() => {/* Handle upload */}}
+              >
+                <Ionicons name="camera" size={18} color="#FFFFFF" />
+                <Text style={styles.uploadPromptText}>Upload Your First Photo</Text>
+              </TouchableOpacity>
             </View>
           ) : (
+            <ScrollView 
+              style={styles.portfolioListScroll}
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}
+            >
             <View style={styles.galleryGrid}>
               {filteredItems.map((item) => (
                 <View key={item.id} style={styles.galleryCard}>
@@ -283,6 +389,7 @@ export default function StylistPortfolioScreen() {
                 </View>
               ))}
             </View>
+            </ScrollView>
           )}
         </StylistSection>
       </ScrollView>
@@ -358,7 +465,7 @@ const styles = StyleSheet.create({
   },
   categoryContainer: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 4,
   },
   categoryButton: {
     paddingHorizontal: 16,
@@ -445,11 +552,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FCE7F3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
   emptyStateTitle: {
     fontSize: 18,
     color: '#160B53',
     fontFamily: FONTS.bold,
-    marginTop: 16,
     marginBottom: 8,
   },
   emptyStateText: {
@@ -458,6 +573,26 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.regular,
     textAlign: 'center',
     lineHeight: 20,
+    maxWidth: 280,
+    marginBottom: 20,
+  },
+  uploadPromptButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: '#160B53',
+    borderRadius: 8,
+  },
+  uploadPromptText: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontFamily: FONTS.semiBold,
+  },
+  // Scrollable Portfolio List (responsive to screen height)
+  portfolioListScroll: {
+    maxHeight: Dimensions.get('window').height * 0.5, // 50% of screen height
   },
   floatingButton: {
     position: 'absolute',
@@ -475,5 +610,186 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
     zIndex: 1000,
+  },
+  // Enhanced Stats Card (consistent with other pages)
+  statsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  statsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  statsTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  totalBadge: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  totalBadgeText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  statNumber: {
+    fontSize: 20,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  // List Header (consistent with other pages)
+  listHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  listTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+  },
+  countBadge: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  countText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
+  },
+  // Quick Filter Chips with Count Badges (consistent with other pages)
+  quickFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  quickFilterChipActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  quickFilterText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#374151',
+  },
+  quickFilterTextActive: {
+    color: '#FFFFFF',
+  },
+  quickFilterBadge: {
+    marginLeft: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickFilterBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  quickFilterBadgeText: {
+    fontSize: 12,
+    fontFamily: FONTS.bold,
+    color: APP_CONFIG.primaryColor,
+  },
+  quickFilterBadgeTextActive: {
+    color: '#FFFFFF',
+  },
+  // Pending Approval Styles
+  pendingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  pendingBadgeText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#F59E0B',
+  },
+  pendingInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFFBEB',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FEF3C7',
+  },
+  pendingInfoText: {
+    fontSize: 13,
+    fontFamily: FONTS.medium,
+    color: '#92400E',
+    flex: 1,
+  },
+  pendingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  pendingOverlayText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
   },
 });

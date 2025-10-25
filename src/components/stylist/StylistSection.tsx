@@ -14,12 +14,12 @@ export default function StylistSection({ children, isTitle = false, style }: Sty
 const styles = StyleSheet.create({
   section: {
     paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
-    marginBottom: 8,
-    paddingTop: Platform.OS === 'web' ? 0 : Platform.OS === 'android' ? 16 : 12,
+    marginBottom: 12,
+    paddingTop: Platform.OS === 'web' ? 0 : Platform.OS === 'android' ? 12 : 8,
   },
   titleSection: {
     paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
-    marginBottom: 8,
-    paddingTop: Platform.OS === 'web' ? 0 : Platform.OS === 'android' ? 24 : 20,
+    marginBottom: 12,
+    paddingTop: Platform.OS === 'web' ? 0 : Platform.OS === 'android' ? 20 : 16,
   },
 });

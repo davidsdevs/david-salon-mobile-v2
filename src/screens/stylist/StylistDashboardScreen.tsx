@@ -22,6 +22,7 @@ import {
   StylistButton,
   StylistCard,
   StylistBadge,
+  ClientTypeLegend,
 } from '../../components/stylist';
 import { useAuth } from '../../hooks/redux';
 import { APP_CONFIG, FONTS } from '../../constants';
@@ -45,6 +46,7 @@ export default function StylistDashboardScreen() {
     newClients: 0,
     transferClients: 0,
     regularClients: 0,
+    todayEarnings: 0,
   });
 
   // Fetch branch name based on stylist's branchId
@@ -84,56 +86,10 @@ export default function StylistDashboardScreen() {
     setSelectedAppointment(appointment);
     setIsModalVisible(true);
   };
-
   const closeAppointmentDetails = () => {
     setIsModalVisible(false);
     setSelectedAppointment(null);
   };
-
-  const handleConfirmAppointment = () => {
-    Alert.alert(
-      'Confirm Appointment',
-      `Are you sure you want to confirm this appointment with ${selectedAppointment?.client}?`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Confirm',
-          onPress: () => {
-            console.log('Appointment confirmed');
-            // TODO: Update appointment status to confirmed
-            closeAppointmentDetails();
-          },
-          style: 'default',
-        },
-      ]
-    );
-  };
-
-  const handleCancelAppointment = () => {
-    Alert.alert(
-      'Cancel Appointment',
-      `Are you sure you want to cancel this appointment with ${selectedAppointment?.client}?`,
-      [
-        {
-          text: 'No',
-          style: 'cancel',
-        },
-        {
-          text: 'Yes, Cancel',
-          onPress: () => {
-            console.log('Appointment cancelled');
-            // TODO: Update appointment status to cancelled
-            closeAppointmentDetails();
-          },
-          style: 'destructive',
-        },
-      ]
-    );
-  };
-
   // Helper function to determine client type
   const getClientType = (appointment: any): 'X' | 'TR' | 'R' => {
     // Check if appointment has clientType field
@@ -310,6 +266,15 @@ export default function StylistDashboardScreen() {
         // Count today's completed appointments
         const todayClientsServed = appointments.filter(a => a.status === 'completed').length;
 
+        // Calculate today's earnings from completed appointments
+        const todayEarnings = appointments
+          .filter(a => a.status === 'completed')
+          .reduce((sum, a) => {
+            // Extract numeric value from price string (e.g., "₱500" -> 500)
+            const priceValue = parseFloat(a.price.replace(/[^0-9.]/g, '')) || 0;
+            return sum + priceValue;
+          }, 0);
+
         // Sort appointments: cancelled appointments at the bottom
         const sortedAppointments = appointments.sort((a, b) => {
           // If one is cancelled and the other isn't, cancelled goes to bottom
@@ -326,6 +291,7 @@ export default function StylistDashboardScreen() {
           newClients,
           transferClients,
           regularClients,
+          todayEarnings,
         });
 
         console.log('✅ Real-time update processed:', appointments.length, 'Clients served today:', todayClientsServed);
@@ -348,35 +314,7 @@ export default function StylistDashboardScreen() {
   }, [user?.id]);
 
 
-  const rewards = [
-    {
-      id: 1,
-      title: 'Free Hair Cut',
-      description: 'Get a complimentary hair cut service',
-      points: '1000 pts',
-      buttonText: 'Redeem',
-      buttonStyle: 'filled',
-      available: true,
-    },
-    {
-      id: 2,
-      title: '20% Off Facial',
-      description: 'Enjoy 20% discount on facial treatments',
-      points: '500 pts',
-      buttonText: 'Redeem',
-      buttonStyle: 'filled',
-      available: true,
-    },
-    {
-      id: 3,
-      title: 'Free Manicure',
-      description: 'Complimentary manicure service',
-      points: '300 pts',
-      buttonText: 'Redeem',
-      buttonStyle: 'filled',
-      available: true,
-    },
-  ];
+  // Removed unused rewards array
 
   // Platform-specific rendering
   const isWeb = Platform.OS === 'web';
@@ -414,6 +352,15 @@ export default function StylistDashboardScreen() {
                 </View>
               </View>
               <Text style={styles.statValue}>{loading ? '-' : stats.clientsServed}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={styles.statHeader}>
+                <Text style={styles.statLabel}>Today's Earnings</Text>
+                <View style={styles.statIcon}>
+                  <Ionicons name="cash" size={24} color="#160B53" />
+                </View>
+              </View>
+              <Text style={styles.statValue}>{loading ? '-' : `₱${stats.todayEarnings.toFixed(2)}`}</Text>
             </View>
           </View>
 
@@ -538,112 +485,99 @@ export default function StylistDashboardScreen() {
   // Mobile view
   return (
     <ScreenWrapper title="Dashboard" userType="stylist">
-      {/* Welcome Banner */}
-      <View style={styles.welcomeBanner}>
-        <Text style={styles.welcomeTitle}>Welcome back, {user?.firstName || 'Maria'}!</Text>
-        <Text style={styles.welcomeSubtitle}>
-          {branchName && `${branchName} • `}Here's your dashboard for today {new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}
-        </Text>
-      </View>
+      <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Welcome Banner */}
+        <StylistSection>
+          <View style={styles.welcomeBanner}>
+            <View>
+              <Text style={styles.welcomeTitle}>Welcome back, {user?.firstName || 'Stylist'}! 👋</Text>
+              <Text style={styles.welcomeSubtitle}>
+                {branchName && `${branchName} • `}{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </Text>
+            </View>
+            <View style={styles.dateChip}>
+              <Ionicons name="calendar-outline" size={16} color="#160B53" />
+              <Text style={styles.dateChipText}>Today</Text>
+            </View>
+          </View>
+        </StylistSection>
 
-
-      {/* Available Rewards - Web View Only */}
-      {isWeb && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Available Rewards</Text>
-          <View style={styles.rewardsContainer}>
-            {rewards.map((reward) => (
-              <View key={reward.id} style={styles.rewardCard}>
-                <View style={styles.rewardContent}>
-                  <Text style={styles.rewardTitle}>{reward.title}</Text>
-                  <Text style={styles.rewardPoints}>{reward.points}</Text>
-                  <Text style={styles.rewardDescription}>{reward.description}</Text>
+        {/* Key Metrics - Enhanced Stats Card with Client Breakdown */}
+        <StylistSection>
+          <View style={styles.statsCard}>
+            <View style={styles.statsHeader}>
+              <Text style={styles.statsTitle}>Today's Overview</Text>
+            </View>
+            
+            {/* Main Stats Grid */}
+            <View style={styles.statsGrid}>
+              <View style={styles.statItem}>
+                <View style={styles.statIconContainer}>
+                  <Ionicons name="calendar" size={20} color="#160B53" />
                 </View>
-                <TouchableOpacity 
-                  style={[
-                    styles.rewardButton,
-                    reward.buttonStyle === 'filled' && styles.rewardButtonFilled,
-                    reward.buttonStyle === 'disabled' && styles.rewardButtonDisabled
-                  ]}
-                  disabled={!reward.available}
-                >
-                  <Text style={[
-                    styles.rewardButtonText,
-                    reward.buttonStyle === 'filled' && styles.rewardButtonTextFilled,
-                    reward.buttonStyle === 'disabled' && styles.rewardButtonTextDisabled
-                  ]}>
-                    {reward.buttonText}
-                  </Text>
-                </TouchableOpacity>
+                <Text style={styles.statNumber}>{loading ? '-' : stats.todayAppointments}</Text>
+                <Text style={styles.statLabel}>Appointments</Text>
               </View>
-            ))}
-          </View>
-        </View>
-      )}
+              <View style={styles.statItem}>
+                <View style={[styles.statIconContainer, { backgroundColor: '#DBEAFE' }]}>
+                  <Ionicons name="people" size={20} color="#1E40AF" />
+                </View>
+                <Text style={[styles.statNumber, { color: '#1E40AF' }]}>{loading ? '-' : stats.clientsServed}</Text>
+                <Text style={styles.statLabel}>Served</Text>
+              </View>
+              <View style={styles.statItem}>
+                <View style={[styles.statIconContainer, { backgroundColor: '#D1FAE5' }]}>
+                  <Ionicons name="cash" size={20} color="#10B981" />
+                </View>
+                <Text style={[styles.statNumber, { color: '#10B981' }]}>{loading ? '-' : `₱${stats.todayEarnings.toFixed(0)}`}</Text>
+                <Text style={styles.statLabel}>Earnings</Text>
+              </View>
+            </View>
 
-      {/* Key Metrics */}
-      <View style={styles.metricsContainer}>
-        <View style={styles.metricsRow}>
-          <View style={styles.metricCard}>
-            <View style={styles.metricIcon}>
-              <Ionicons name="calendar" size={24} color="#160B53" />
-            </View>
-            <Text style={styles.metricNumber}>{loading ? '-' : stats.todayAppointments}</Text>
-            <Text style={styles.metricLabel}>Today Appointments</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <View style={styles.metricIcon}>
-              <Ionicons name="people" size={24} color="#160B53" />
-            </View>
-            <Text style={styles.metricNumber}>{loading ? '-' : stats.clientsServed}</Text>
-            <Text style={styles.metricLabel}>Clients Served</Text>
-          </View>
-        </View>
-      </View>
+            {/* Divider */}
+            <View style={styles.statsDivider} />
 
-      {/* Today's Client Breakdown */}
-      <StylistSection>
-        <View style={styles.breakdownHeader}>
-          <Ionicons name="people-outline" size={20} color="#160B53" />
-          <Text style={styles.breakdownTitle}>Today's Client Breakdown</Text>
-        </View>
-        <View style={styles.breakdownGrid}>
-          <View style={styles.breakdownCardYellow}>
-            <View style={styles.breakdownContent}>
-              <Text style={styles.breakdownLabel}>New Clients (X)</Text>
-              <Text style={styles.breakdownNumber}>{loading ? '-' : stats.newClients}</Text>
-              <Text style={styles.breakdownSubtext}>First-time visitors</Text>
-            </View>
-            <View style={styles.breakdownIconCircle}>
-              <Text style={styles.breakdownIconText}>X</Text>
-            </View>
-          </View>
-          <View style={styles.breakdownCardPink}>
-            <View style={styles.breakdownContent}>
-              <Text style={styles.breakdownLabel}>Regular Clients (R)</Text>
-              <Text style={styles.breakdownNumber}>{loading ? '-' : stats.regularClients}</Text>
-              <Text style={styles.breakdownSubtext}>Preferred stylist clients</Text>
-            </View>
-            <View style={styles.breakdownIconCircle}>
-              <Text style={styles.breakdownIconText}>R</Text>
-            </View>
-          </View>
-          <View style={styles.breakdownCardCyan}>
-            <View style={styles.breakdownContent}>
-              <Text style={styles.breakdownLabel}>Transfer Clients (TR)</Text>
-              <Text style={styles.breakdownNumber}>{loading ? '-' : stats.transferClients}</Text>
-              <Text style={styles.breakdownSubtext}>No preferred stylist</Text>
-            </View>
-            <View style={styles.breakdownIconCircle}>
-              <Text style={styles.breakdownIconText}>TR</Text>
+            {/* Client Breakdown - Compact */}
+            <View style={styles.clientBreakdownCompact}>
+              <View style={styles.breakdownHeaderRow}>
+                <Text style={styles.breakdownCompactTitle}>Client Types</Text>
+                <ClientTypeLegend variant="icon" />
+              </View>
+              <View style={styles.clientTypesRow}>
+                <View style={styles.clientTypeCompact}>
+                  <View style={[styles.clientTypeBadge, { backgroundColor: '#FEF3C7' }]}>
+                    <Text style={[styles.clientTypeBadgeText, { color: '#F59E0B' }]}>X</Text>
+                  </View>
+                  <Text style={styles.clientTypeCount}>{loading ? '-' : stats.newClients}</Text>
+                  <Text style={styles.clientTypeLabel}>New</Text>
+                </View>
+                <View style={styles.clientTypeCompact}>
+                  <View style={[styles.clientTypeBadge, { backgroundColor: '#FCE7F3' }]}>
+                    <Text style={[styles.clientTypeBadgeText, { color: '#EC4899' }]}>R</Text>
+                  </View>
+                  <Text style={styles.clientTypeCount}>{loading ? '-' : stats.regularClients}</Text>
+                  <Text style={styles.clientTypeLabel}>Regular</Text>
+                </View>
+                <View style={styles.clientTypeCompact}>
+                  <View style={[styles.clientTypeBadge, { backgroundColor: '#D1FAE5' }]}>
+                    <Text style={[styles.clientTypeBadgeText, { color: '#10B981' }]}>TR</Text>
+                  </View>
+                  <Text style={styles.clientTypeCount}>{loading ? '-' : stats.transferClients}</Text>
+                  <Text style={styles.clientTypeLabel}>Transfer</Text>
+                </View>
+              </View>
             </View>
           </View>
-        </View>
-      </StylistSection>
+        </StylistSection>
 
-      {/* Today's Appointments */}
-      <StylistSection>
-        <Text style={styles.sectionTitle}>Today's Appointments</Text>
+        {/* Today's Appointments */}
+        <StylistSection>
+          <View style={styles.listHeader}>
+            <Text style={styles.listTitle}>Today's Appointments</Text>
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>{loading ? '0' : todayAppointments.length}</Text>
+            </View>
+          </View>
         {loading ? (
           <View style={styles.emptyState}>
             <ActivityIndicator size="large" color="#160B53" />
@@ -651,24 +585,61 @@ export default function StylistDashboardScreen() {
           </View>
         ) : todayAppointments.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="calendar-outline" size={64} color="#D1D5DB" />
+            <View style={styles.emptyStateIconContainer}>
+              <Ionicons name="calendar-clear" size={48} color="#10B981" />
+            </View>
             <Text style={styles.emptyStateTitle}>No Appointments Today</Text>
-            <Text style={styles.emptyStateText}>You have no appointments scheduled for today.</Text>
+            <Text style={styles.emptyStateText}>
+              Enjoy your free day! You have no appointments scheduled for today.
+            </Text>
+            <View style={styles.emptyStateHint}>
+              <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
+              <Text style={styles.emptyStateHintText}>
+                The receptionist will assign new appointments to you
+              </Text>
+            </View>
           </View>
         ) : (
-          todayAppointments.map((appointment) => (
-            <TouchableOpacity 
-              key={appointment.id}
-              style={styles.appointmentCard}
-              onPress={() => openAppointmentDetails(appointment)}
-            >
+          todayAppointments.map((appointment, index) => {
+            // Check if this is the next appointment (first one that hasn't been completed/cancelled)
+            const isNextAppointment = index === 0 && 
+              appointment.status !== 'completed' && 
+              appointment.status !== 'cancelled';
+            
+            return (
+              <TouchableOpacity 
+                key={appointment.id}
+                style={[
+                  styles.appointmentCard,
+                  isNextAppointment && styles.nextAppointmentCard
+                ]}
+                onPress={() => openAppointmentDetails(appointment)}
+              >
+                {/* Next Up Badge */}
+                {isNextAppointment && (
+                  <View style={styles.nextUpBadge}>
+                    <Ionicons name="flash" size={14} color="#FFFFFF" />
+                    <Text style={styles.nextUpText}>NEXT UP</Text>
+                  </View>
+                )}
+                
               <View style={styles.appointmentLeft}>
-                <View style={styles.appointmentIcon}>
-                  <Ionicons name="calendar" size={20} color="#4A90E2" />
+                <View style={[
+                  styles.appointmentIcon,
+                  isNextAppointment && styles.nextAppointmentIcon
+                ]}>
+                  <Ionicons 
+                    name={isNextAppointment ? "time" : "calendar"} 
+                    size={20} 
+                    color={isNextAppointment ? "#10B981" : "#4A90E2"} 
+                  />
                 </View>
                 <View style={styles.appointmentDetails}>
                   <View style={styles.nameRow}>
-                    <Text style={styles.appointmentClient}>{appointment.client}</Text>
+                    <Text style={[
+                      styles.appointmentClient,
+                      isNextAppointment && styles.nextAppointmentText
+                    ]}>{appointment.client}</Text>
                     <StylistBadge
                       label={getClientType(appointment)}
                       variant={getClientTypeVariant(getClientType(appointment))}
@@ -707,9 +678,11 @@ export default function StylistDashboardScreen() {
                 />
               </View>
             </TouchableOpacity>
-          )))}
-      </StylistSection>
-
+            );
+          })
+        )}
+        </StylistSection>
+      </ScrollView>
 
       {/* Appointment Details Modal (Mobile) */}
       <Modal visible={isModalVisible} animationType="fade" transparent onRequestClose={closeAppointmentDetails}>
@@ -820,7 +793,6 @@ export default function StylistDashboardScreen() {
           </View>
         </View>
       </Modal>
-
     </ScreenWrapper>
   );
 }
@@ -828,7 +800,7 @@ export default function StylistDashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 16,
+    backgroundColor: '#F9FAFB',
   },
   webContainer: {
     flex: 1,
@@ -839,13 +811,13 @@ const styles = StyleSheet.create({
   },
   welcomeBanner: {
     backgroundColor: APP_CONFIG.primaryColor,
-    marginHorizontal: Platform.OS === 'web' ? 0 : 16,
-    marginTop: Platform.OS === 'web' ? 8 : Platform.OS === 'android' ? 30 : 20,
-    marginBottom: 16,
     padding: Platform.OS === 'web' ? 16 : 20,
     paddingTop: Platform.OS === 'web' ? 24 : 20,
     borderRadius: 12,
     height: Platform.OS === 'web' ? 118 : undefined,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   welcomeTitle: {
     fontSize: Platform.OS === 'web' ? 25 : Platform.OS === 'ios' ? 20 : 18,
@@ -859,21 +831,175 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     fontFamily: FONTS.regular,
   },
-  metricsContainer: {
-    paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
+  dateChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
+  },
+  dateChipText: {
+    fontSize: 12,
+    fontFamily: FONTS.semiBold,
+    color: '#FFFFFF',
+  },
+  // Enhanced Stats Card (same as Appointments page)
+  statsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  statsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  statsTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#EF4444',
+  },
+  liveText: {
+    fontSize: 11,
+    fontFamily: FONTS.medium,
+    color: '#EF4444',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
+  },
+  statNumber: {
+    fontSize: 24,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  // Stats Divider
+  statsDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 16,
+  },
+  // Compact Client Breakdown (inside stats card)
+  clientBreakdownCompact: {
+    marginTop: 4,
+  },
+  breakdownHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  breakdownCompactTitle: {
+    fontSize: 13,
+    fontFamily: FONTS.semiBold,
+    color: '#6B7280',
+  },
+  clientTypesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  clientTypeCompact: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  clientTypeBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  clientTypeBadgeText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+  },
+  clientTypeCount: {
+    fontSize: 18,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+    marginBottom: 2,
+  },
+  // List Header (same as Appointments page)
+  listHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  listTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+  },
+  countBadge: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  countText: {
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
   },
   metricsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   metricCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 14 : 16,
     alignItems: 'center',
-    width: (width - 48) / 2,
+    flex: 1,
+    marginHorizontal: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -938,6 +1064,48 @@ const styles = StyleSheet.create({
     elevation: Platform.OS === 'web' ? 0 : 1,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+  },
+  nextAppointmentCard: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 2,
+    borderColor: '#10B981',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+    position: 'relative',
+  },
+  nextUpBadge: {
+    position: 'absolute',
+    top: -8,
+    right: 12,
+    backgroundColor: '#10B981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+    zIndex: 10,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  nextUpText: {
+    fontSize: 11,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  nextAppointmentIcon: {
+    backgroundColor: '#D1FAE5',
+  },
+  nextAppointmentText: {
+    color: '#10B981',
+    fontFamily: FONTS.bold,
   },
   appointmentLeft: {
     flexDirection: 'row',
@@ -1101,11 +1269,7 @@ const styles = StyleSheet.create({
   statText: {
     flex: 1,
   },
-  statLabel: {
-    fontSize: Platform.OS === 'web' ? 14 : 12,
-    color: Platform.OS === 'web' ? '#000000' : '#6B7280',
-    fontFamily: Platform.OS === 'web' ? FONTS.medium : FONTS.regular,
-  },
+  // Removed duplicate statLabel - using the one from enhanced stats card
   statValue: {
     fontSize: Platform.OS === 'web' ? 32 : 20,
     color: Platform.OS === 'web' ? '#000000' : '#111827',
@@ -1488,11 +1652,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  emptyStateIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#F0FDF4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
   emptyStateTitle: {
     fontSize: 18,
     color: '#160B53',
     fontFamily: FONTS.bold,
-    marginTop: 16,
     marginBottom: 8,
   },
   emptyStateText: {
@@ -1501,6 +1673,33 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.regular,
     textAlign: 'center',
     lineHeight: 20,
+    maxWidth: 280,
+  },
+  emptyStateHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  emptyStateHintText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontFamily: FONTS.medium,
+  },
+  // Earnings card styles
+  earningsCard: {
+    marginHorizontal: 0,
+    backgroundColor: '#D1FAE5',
+    borderColor: '#A7F3D0',
+  },
+  earningsNumber: {
+    color: '#10B981',
   },
 });  // ========================================
   // END OF WEB-SPECIFIC STYLES
