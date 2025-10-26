@@ -23,6 +23,7 @@ import {
   StylistSection,
   StylistPageTitle,
   StylistBadge,
+  StylistPagination,
 } from '../../components/stylist';
 import { APP_CONFIG, FONTS } from '../../constants';
 
@@ -346,6 +347,19 @@ export default function StylistNotificationsScreen() {
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedFilter]);
+
+  // Pagination handlers
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
 
   // Memoize grouped notifications
   const { groupedNotifications, sortedGroups } = useMemo(() => {
@@ -727,34 +741,14 @@ export default function StylistNotificationsScreen() {
           )}
 
           {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <View style={styles.paginationContainer}>
-              <TouchableOpacity
-                style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
-                onPress={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-              >
-                <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? '#D1D5DB' : '#160B53'} />
-              </TouchableOpacity>
-              
-              <View style={styles.paginationInfo}>
-                <Text style={styles.paginationText}>
-                  Page {currentPage} of {totalPages}
-                </Text>
-                <Text style={styles.paginationSubtext}>
-                  {startIndex + 1}-{Math.min(endIndex, filteredNotifications.length)} of {filteredNotifications.length}
-                </Text>
-              </View>
-              
-              <TouchableOpacity
-                style={[styles.paginationButton, currentPage === totalPages && styles.paginationButtonDisabled]}
-                onPress={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-              >
-                <Ionicons name="chevron-forward" size={20} color={currentPage === totalPages ? '#D1D5DB' : '#160B53'} />
-              </TouchableOpacity>
-            </View>
-          )}
+          <StylistPagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredNotifications.length}
+            itemsPerPage={itemsPerPage}
+            onNextPage={handleNextPage}
+            onPrevPage={handlePrevPage}
+          />
         </StylistSection>
         </>
         )}
