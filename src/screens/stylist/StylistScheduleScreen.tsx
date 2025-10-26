@@ -20,6 +20,7 @@ import {
   StylistPageTitle,
   StylistFilterTab,
   StylistBadge,
+  StylistPagination,
 } from '../../components/stylist';
 import { APP_CONFIG, FONTS } from '../../constants';
 
@@ -46,6 +47,15 @@ export default function StylistScheduleScreen() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [calendarDates, setCalendarDates] = useState<Date[]>([]);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+
+  // Reset to page 1 when date or branch changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedDate, selectedBranch]);
 
   // Scroll to top when screen is focused
   useFocusEffect(
@@ -212,6 +222,26 @@ export default function StylistScheduleScreen() {
 
   // Get appointments for selected date
   const selectedDateAppointments = getAppointmentsForDate(selectedDate);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(selectedDateAppointments.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedAppointments = selectedDateAppointments.slice(startIndex, endIndex);
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    }
+  };
 
   // Navigate month
   const goToPreviousMonth = () => {
@@ -407,12 +437,13 @@ export default function StylistScheduleScreen() {
               </View>
             </View>
           ) : (
+            <>
             <ScrollView 
               style={styles.appointmentListScroll}
               showsVerticalScrollIndicator={true}
               nestedScrollEnabled={true}
             >
-            {selectedDateAppointments.map((appointment) => (
+            {paginatedAppointments.map((appointment) => (
               <View key={appointment.id} style={styles.appointmentCard}>
                 <View style={styles.appointmentLeft}>
                   <View style={styles.appointmentIcon}>
@@ -455,6 +486,15 @@ export default function StylistScheduleScreen() {
               </View>
             ))}
             </ScrollView>
+            <StylistPagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={selectedDateAppointments.length}
+              itemsPerPage={itemsPerPage}
+              onNextPage={handleNextPage}
+              onPrevPage={handlePrevPage}
+            />
+            </>
           )}
         </StylistSection>
       </ScrollView>
