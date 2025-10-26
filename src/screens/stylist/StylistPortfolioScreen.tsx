@@ -9,6 +9,8 @@ import {
   Dimensions,
   Platform,
   ActivityIndicator,
+  Alert,
+  ActionSheetIOS,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,8 +25,10 @@ import {
 } from '../../components/stylist';
 import { APP_CONFIG, FONTS } from '../../constants';
 import { useAuth } from '../../hooks/redux';
-import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../config/firebase';
+import * as ImagePicker from 'expo-image-picker';
+import { cloudinaryService } from '../../services/cloudinaryService';
 
 const { width } = Dimensions.get('window');
 
@@ -46,6 +50,7 @@ export default function StylistPortfolioScreen() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Scroll to top when screen is focused
@@ -140,8 +145,173 @@ export default function StylistPortfolioScreen() {
       return matchesCategory && matchesSearch;
     });
 
+  // Request permissions on mount
+  useEffect(() => {
+    (async () => {
+      const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
+      const { status: libraryStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (cameraStatus !== 'granted' || libraryStatus !== 'granted') {
+        console.log('⚠️ Camera or library permissions not granted');
+      }
+    })();
+  }, []);
+
+  const pickImageFromLibrary = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        await uploadImageToCloudinary(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('❌ Error picking image from library:', error);
+      Alert.alert('Error', 'Failed to pick image from library');
+    }
+  };
+
+  const takePhoto = async () => {
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        await uploadImageToCloudinary(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('❌ Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo');
+    }
+  };
+
+  const uploadImageToCloudinary = async (imageUri: string) => {
+    if (!user?.uid && !user?.id) {
+      Alert.alert('Error', 'User not authenticated');
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      console.log('📤 Uploading image to Cloudinary...');
+      
+      // Upload to Cloudinary
+      const uploadResult = await cloudinaryService.uploadImage(imageUri, {
+        folder: 'salon/portfolios',
+        tags: [`stylist_${user.uid || user.id}`, 'portfolio'],
+      });
+
+      console.log('✅ Image uploaded to Cloudinary:', uploadResult.secureUrl);
+
+      // Prompt for title and category
+      Alert.prompt(
+        'Add Details',
+        'Enter a title for this work:',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setUploading(false),
+          },
+          {
+            text: 'Save',
+            onPress: async (title) => {
+              await saveToFirestore(uploadResult, title || 'Untitled');
+            },
+          },
+        ],
+        'plain-text',
+        'My Amazing Work'
+      );
+    } catch (error) {
+      console.error('❌ Error uploading image:', error);
+      Alert.alert('Upload Failed', 'Failed to upload image. Please try again.');
+      setUploading(false);
+    }
+  };
+
+  const saveToFirestore = async (uploadResult: any, title: string) => {
+    try {
+      const stylistId = user?.uid || user?.id;
+      
+      // Save to Firestore
+      await addDoc(collection(db, 'portfolio'), {
+        stylistId,
+        imageUrl: uploadResult.secureUrl,
+        publicId: uploadResult.publicId,
+        thumbnailUrl: uploadResult.thumbnailUrl,
+        title: title || 'Untitled',
+        category: 'Haircut', // Default category
+        description: '',
+        status: 'pending',
+        width: uploadResult.width,
+        height: uploadResult.height,
+        createdAt: serverTimestamp(),
+      });
+
+      console.log('✅ Portfolio item saved to Firestore');
+      Alert.alert(
+        'Success!',
+        'Your work has been uploaded and is pending approval from the branch manager.',
+        [{ text: 'OK' }]
+      );
+      setUploading(false);
+    } catch (error) {
+      console.error('❌ Error saving to Firestore:', error);
+      Alert.alert('Error', 'Failed to save portfolio item');
+      setUploading(false);
+    }
+  };
+
   const handleUploadPhoto = () => {
-    console.log('Upload photo');
+    if (uploading) {
+      Alert.alert('Please wait', 'Upload in progress...');
+      return;
+    }
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take Photo', 'Choose from Library'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            takePhoto();
+          } else if (buttonIndex === 2) {
+            pickImageFromLibrary();
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        'Upload Photo',
+        'Choose an option:',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Take Photo',
+            onPress: takePhoto,
+          },
+          {
+            text: 'Choose from Library',
+            onPress: pickImageFromLibrary,
+          },
+        ],
+        { cancelable: true }
+      );
+    }
   };
 
   // For web, render without ScreenWrapper to avoid duplicate headers
@@ -231,15 +401,6 @@ export default function StylistPortfolioScreen() {
   return (
     <ScreenWrapper title="Portfolio" userType="stylist" showBackButton={true}>
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Search */}
-        <StylistSection style={styles.searchSection}>
-          <StylistSearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search by title..."
-          />
-        </StylistSection>
-
         {/* Category Filter */}
         <StylistSection style={styles.categorySection}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -286,6 +447,15 @@ export default function StylistPortfolioScreen() {
               })}
             </View>
           </ScrollView>
+        </StylistSection>
+
+        {/* Search */}
+        <StylistSection style={styles.searchSection}>
+          <StylistSearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search by title..."
+          />
         </StylistSection>
 
         {/* Pending Approval Section */}
@@ -358,10 +528,17 @@ export default function StylistPortfolioScreen() {
               </Text>
               <TouchableOpacity 
                 style={styles.uploadPromptButton}
-                onPress={() => {/* Handle upload */}}
+                onPress={handleUploadPhoto}
+                disabled={uploading}
               >
-                <Ionicons name="camera" size={18} color="#FFFFFF" />
-                <Text style={styles.uploadPromptText}>Upload Your First Photo</Text>
+                {uploading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="camera" size={18} color="#FFFFFF" />
+                    <Text style={styles.uploadPromptText}>Upload Your First Photo</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           ) : (
@@ -398,8 +575,13 @@ export default function StylistPortfolioScreen() {
       <TouchableOpacity 
         style={styles.floatingButton}
         onPress={handleUploadPhoto}
+        disabled={uploading}
       >
-        <Ionicons name="add" size={32} color="#FFFFFF" />
+        {uploading ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Ionicons name="add" size={32} color="#FFFFFF" />
+        )}
       </TouchableOpacity>
     </ScreenWrapper>
   );
@@ -410,11 +592,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
-  searchSection: {
-    marginTop: 16,
-  },
   categorySection: {
-    marginTop: -12,
+    marginTop: 0,
+    marginBottom: 8,
+  },
+  searchSection: {
+    marginTop: 0,
   },
   webContainer: {
     flex: 1,

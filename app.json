@@ -22,8 +22,13 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.davidssalon.mobile",
+      "buildNumber": "1",
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": ["remote-notification"],
+        "NSCameraUsageDescription": "David's Salon needs camera access to upload portfolio photos and profile pictures.",
+        "NSPhotoLibraryUsageDescription": "David's Salon needs photo library access to select images for your portfolio and profile.",
+        "NSPhotoLibraryAddUsageDescription": "David's Salon needs permission to save photos to your library.",
+        "NSLocationWhenInUseUsageDescription": "David's Salon uses your location to find nearby salon branches and provide location-based services."
       }
     },
     "android": {
@@ -33,10 +38,16 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.davidssalon.mobile",
+      "versionCode": 1,
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "NOTIFICATIONS"
+        "NOTIFICATIONS",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ],
       "googleServicesFile": "./google-services.json",
       "useNextNotificationsApi": true
@@ -46,6 +57,11 @@
     },
     "description": "Professional hair salon services at your fingertips",
     "primaryColor": "#160B53",
-    "platforms": ["ios", "android", "web"]
+    "platforms": ["ios", "android", "web"],
+    "extra": {
+      "eas": {
+        "projectId": "your-project-id-here"
+      }
+    }
   }
 }

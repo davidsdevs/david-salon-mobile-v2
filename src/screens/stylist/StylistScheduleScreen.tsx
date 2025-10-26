@@ -42,7 +42,6 @@ export default function StylistScheduleScreen() {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState<ScheduleAppointment[]>([]);
   const [branches, setBranches] = useState<{ [key: string]: string }>({});
-  const [selectedView, setSelectedView] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -279,14 +278,8 @@ export default function StylistScheduleScreen() {
   return (
     <ScreenWrapper title="My Schedule" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <StylistSection>
-          <StylistPageTitle title="My Schedule" />
-          <Text style={styles.subtitle}>Tap a date to view appointments</Text>
-        </StylistSection>
-
         {/* Month Navigation */}
-        <StylistSection>
+        <StylistSection style={styles.monthSection}>
           <View style={styles.monthHeader}>
             <TouchableOpacity onPress={goToPreviousMonth} style={styles.monthNavButton}>
               <Ionicons name="chevron-back" size={24} color="#160B53" />
@@ -306,8 +299,7 @@ export default function StylistScheduleScreen() {
         </StylistSection>
 
         {/* Branch Filter */}
-        <StylistSection>
-          <Text style={styles.filterLabel}>Filter by Branch</Text>
+        <StylistSection style={styles.branchFilterSection}>
           <ScrollView 
             horizontal 
             showsHorizontalScrollIndicator={false}
@@ -334,7 +326,7 @@ export default function StylistScheduleScreen() {
         </StylistSection>
 
         {/* Calendar Grid */}
-        <StylistSection>
+        <StylistSection style={styles.calendarSection}>
           <View style={styles.calendarContainer}>
             {/* Week Day Headers */}
             <View style={styles.weekDaysRow}>
@@ -475,6 +467,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
+  monthSection: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
+  branchFilterSection: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
+  calendarSection: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
   // Scrollable Appointment List (responsive to screen height)
   appointmentListScroll: {
     maxHeight: Dimensions.get('window').height * 0.5, // 50% of screen height
@@ -489,18 +493,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 4,
   },
-  filterLabel: {
-    fontSize: 14,
-    fontFamily: FONTS.medium,
-    color: '#374151',
-    marginBottom: 8,
-  },
   branchFilterScroll: {
     flexDirection: 'row',
   },
   branchChip: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 20,
     backgroundColor: '#F3F4F6',
     marginRight: 8,
@@ -524,7 +522,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 0,
   },
   monthNavButton: {
     padding: 8,

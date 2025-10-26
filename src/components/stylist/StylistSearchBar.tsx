@@ -41,7 +41,6 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     paddingHorizontal: 12,
     height: Platform.OS === 'web' ? 44 : 42,
-    marginBottom: 16,
   },
   searchIcon: {
     marginRight: 8,

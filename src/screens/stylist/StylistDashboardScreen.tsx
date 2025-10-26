@@ -495,10 +495,6 @@ export default function StylistDashboardScreen() {
                 {branchName && `${branchName} • `}{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               </Text>
             </View>
-            <View style={styles.dateChip}>
-              <Ionicons name="calendar-outline" size={16} color="#160B53" />
-              <Text style={styles.dateChipText}>Today</Text>
-            </View>
           </View>
         </StylistSection>
 

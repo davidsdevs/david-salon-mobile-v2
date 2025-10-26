@@ -337,15 +337,8 @@ export default function StylistClientsScreen() {
   return (
     <ScreenWrapper title="Clients" userType="stylist" showBackButton={true}>
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Search and Filters */}
-        <StylistSection style={styles.searchSection}>
-          <StylistSearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search by name..."
-          />
-          
-          {/* Filter Tabs with Counts */}
+        {/* Filter Tabs with Counts */}
+        <StylistSection style={styles.filterSection}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.filterTabs}>
               {filterOptions.map((filter) => {
@@ -387,6 +380,15 @@ export default function StylistClientsScreen() {
               })}
             </View>
           </ScrollView>
+        </StylistSection>
+
+        {/* Search */}
+        <StylistSection style={styles.searchSection}>
+          <StylistSearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search by name..."
+          />
         </StylistSection>
           
         {/* Clients List */}
@@ -478,8 +480,12 @@ const styles = StyleSheet.create({
   clientListScroll: {
     maxHeight: Dimensions.get('window').height * 0.5, // 50% of screen height
   },
+  filterSection: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
   searchSection: {
-    marginTop: 16,
+    marginTop: 0,
   },
   legendHeader: {
     flexDirection: 'row',

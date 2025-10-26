@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import {
@@ -38,6 +38,13 @@ export default function StylistAppointmentsScreen() {
   const scrollViewRef = React.useRef<ScrollView>(null);
   const appointmentListRef = React.useRef<View>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Scroll to top when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+    }, [])
+  );
   const [selectedFilter, setSelectedFilter] = useState('Today');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,8 +57,10 @@ export default function StylistAppointmentsScreen() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarDates, setCalendarDates] = useState<Date[]>([]);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
 
-  const filterOptions = ['Today', 'Upcoming', 'Confirmed', 'Completed', 'Cancelled'];
+  const mainFilterOptions = ['Today', 'Upcoming', 'All'];
+  const moreFilterOptions = ['Confirmed', 'Completed', 'Cancelled'];
 
   // Generate calendar dates for the current month
   useEffect(() => {
@@ -190,6 +199,10 @@ export default function StylistAppointmentsScreen() {
         // Upcoming shows scheduled/confirmed appointments from tomorrow onwards
         matchesFilter = appointmentDate >= tomorrow && 
                        (status === 'scheduled' || status === 'confirmed' || status === 'pending');
+        break;
+      case 'All':
+        // Show all appointments (except cancelled by default)
+        matchesFilter = status !== 'cancelled';
         break;
       case 'Confirmed':
         // Confirmed shows only confirmed appointments
@@ -382,11 +395,24 @@ export default function StylistAppointmentsScreen() {
 
   // Scroll to appointment list when date is selected
   const scrollToAppointmentList = () => {
+    // Close calendar first for better UX
+    setShowCalendar(false);
+    
+    // Then scroll to the appointment list
     setTimeout(() => {
-      // Scroll to appointment list section (below filters, search, and calendar)
-      // Increased value to ensure we reach the list
-      scrollViewRef.current?.scrollTo({ y: 1000, animated: true });
-    }, 300);
+      // Scroll to appointment list section
+      // Using a more reliable method with onLayout measurement
+      appointmentListRef.current?.measureLayout(
+        scrollViewRef.current as any,
+        (x, y) => {
+          scrollViewRef.current?.scrollTo({ y: y - 20, animated: true });
+        },
+        () => {
+          // Fallback if measurement fails
+          scrollViewRef.current?.scrollTo({ y: 600, animated: true });
+        }
+      );
+    }, 100);
   };
 
   // Mobile-first responsive layout
@@ -397,7 +423,8 @@ export default function StylistAppointmentsScreen() {
         <StylistSection>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.filterTabs}>
-              {filterOptions.map((filter) => {
+              {/* Main Filters */}
+              {mainFilterOptions.map((filter: string) => {
                 // Count appointments using the SAME logic as the main filter
                 const count = appointments.filter(apt => {
                   const aptAny = apt as any;
@@ -410,24 +437,16 @@ export default function StylistAppointmentsScreen() {
                   const status = (apt.status || '').toLowerCase();
                   
                   if (filter === 'Today') {
-                    // Today shows ALL appointments scheduled for today (any status except cancelled)
                     const aptDate = new Date(appointmentDate);
                     aptDate.setHours(0, 0, 0, 0);
                     return aptDate.getTime() === today.getTime() && status !== 'cancelled';
                   }
                   if (filter === 'Upcoming') {
-                    // Upcoming shows scheduled/confirmed appointments from tomorrow onwards
                     return appointmentDate >= tomorrow && 
                            (status === 'scheduled' || status === 'confirmed' || status === 'pending');
                   }
-                  if (filter === 'Confirmed') {
-                    return status === 'confirmed';
-                  }
-                  if (filter === 'Completed') {
-                    return status === 'completed';
-                  }
-                  if (filter === 'Cancelled') {
-                    return status === 'cancelled';
+                  if (filter === 'All') {
+                    return status !== 'cancelled';
                   }
                   return false;
                 }).length;
@@ -463,8 +482,70 @@ export default function StylistAppointmentsScreen() {
                   </TouchableOpacity>
                 );
               })}
+              
+              {/* More Filters Dropdown */}
+              <TouchableOpacity
+                style={[
+                  styles.quickFilterChip,
+                  moreFilterOptions.includes(selectedFilter) && styles.quickFilterChipActive
+                ]}
+                onPress={() => setShowMoreFilters(!showMoreFilters)}
+              >
+                <Text style={[
+                  styles.quickFilterText,
+                  moreFilterOptions.includes(selectedFilter) && styles.quickFilterTextActive
+                ]}>
+                  More
+                </Text>
+                <Ionicons 
+                  name={showMoreFilters ? "chevron-up" : "chevron-down"} 
+                  size={16} 
+                  color={moreFilterOptions.includes(selectedFilter) ? '#FFFFFF' : '#374151'} 
+                />
+              </TouchableOpacity>
             </View>
           </ScrollView>
+          
+          {/* More Filters Dropdown Content */}
+          {showMoreFilters && (
+            <View style={styles.moreFiltersDropdown}>
+              {moreFilterOptions.map((filter: string) => {
+                const count = appointments.filter(apt => {
+                  const status = (apt.status || '').toLowerCase();
+                  if (filter === 'Confirmed') return status === 'confirmed';
+                  if (filter === 'Completed') return status === 'completed';
+                  if (filter === 'Cancelled') return status === 'cancelled';
+                  return false;
+                }).length;
+
+                return (
+                  <TouchableOpacity
+                    key={filter}
+                    style={[
+                      styles.moreFilterItem,
+                      selectedFilter === filter && styles.moreFilterItemActive
+                    ]}
+                    onPress={() => {
+                      setSelectedFilter(filter);
+                      setShowMoreFilters(false);
+                    }}
+                  >
+                    <Text style={[
+                      styles.moreFilterText,
+                      selectedFilter === filter && styles.moreFilterTextActive
+                    ]}>
+                      {filter}
+                    </Text>
+                    {count > 0 && (
+                      <View style={styles.moreFilterBadge}>
+                        <Text style={styles.moreFilterBadgeText}>{count}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </StylistSection>
 
         {/* Search and Sort */}
@@ -479,10 +560,20 @@ export default function StylistAppointmentsScreen() {
             </View>
             <View style={styles.sortButtons}>
               <TouchableOpacity
-                style={[styles.sortButton, showCalendar && styles.sortButtonActive]}
+                style={[
+                  styles.sortButton, 
+                  (showCalendar || selectedDate) && styles.sortButtonActive
+                ]}
                 onPress={() => setShowCalendar(!showCalendar)}
               >
-                <Ionicons name="calendar-outline" size={18} color={showCalendar ? '#FFFFFF' : '#6B7280'} />
+                <Ionicons 
+                  name={selectedDate ? "calendar" : "calendar-outline"} 
+                  size={18} 
+                  color={(showCalendar || selectedDate) ? '#FFFFFF' : '#6B7280'} 
+                />
+                {selectedDate && !showCalendar && (
+                  <View style={styles.dateIndicatorDot} />
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.sortButton, sortBy === 'time' && styles.sortButtonActive]}
@@ -579,14 +670,25 @@ export default function StylistAppointmentsScreen() {
           <View ref={appointmentListRef} collapsable={false}>
           {/* Section Header with Count */}
           <View style={styles.listHeader}>
-            <Text style={styles.listTitle}>
-              {selectedDate 
-                ? `Appointments on ${selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                : selectedFilter === 'Today' 
-                  ? "Today's Appointments"
-                  : `${selectedFilter} Appointments`
-              }
-            </Text>
+            <View style={styles.listTitleContainer}>
+              <Text style={styles.listTitle}>
+                {selectedDate 
+                  ? `Appointments on ${selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                  : selectedFilter === 'Today' 
+                    ? "Today's Appointments"
+                    : `${selectedFilter} Appointments`
+                }
+              </Text>
+              {selectedDate && (
+                <TouchableOpacity 
+                  style={styles.clearDateButton}
+                  onPress={() => setSelectedDate(null)}
+                >
+                  <Ionicons name="close-circle" size={16} color="#6B7280" />
+                  <Text style={styles.clearDateText}>Clear date</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <View style={styles.countBadge}>
               <Text style={styles.countText}>{filteredAppointments.length}</Text>
             </View>
@@ -635,15 +737,41 @@ export default function StylistAppointmentsScreen() {
               showsVerticalScrollIndicator={true}
               nestedScrollEnabled={true}
             >
-            {filteredAppointments.map((appointment) => (
+            {filteredAppointments.map((appointment, index) => {
+              // Determine if this is the next appointment (first pending/confirmed/scheduled)
+              const isNextAppointment = index === 0 && 
+                (appointment.status === 'confirmed' || 
+                 appointment.status === 'scheduled' || 
+                 appointment.status === 'pending') &&
+                selectedFilter === 'Today';
+              
+              return (
             <TouchableOpacity 
               key={appointment.id} 
-              style={styles.appointmentCard}
+              style={[
+                styles.appointmentCard,
+                isNextAppointment && styles.nextAppointmentCard
+              ]}
               onPress={() => handleAppointmentPress(appointment)}
             >
+              {/* Next Up Badge */}
+              {isNextAppointment && (
+                <View style={styles.nextUpBadge}>
+                  <Ionicons name="flash" size={12} color="#FFFFFF" />
+                  <Text style={styles.nextUpText}>NEXT UP</Text>
+                </View>
+              )}
+              
               <View style={styles.appointmentLeft}>
-                <View style={styles.appointmentIcon}>
-                  <Ionicons name="calendar" size={20} color="#4A90E2" />
+                <View style={[
+                  styles.appointmentIcon,
+                  isNextAppointment && styles.nextAppointmentIcon
+                ]}>
+                  <Ionicons 
+                    name={isNextAppointment ? "flash" : "calendar"} 
+                    size={20} 
+                    color={isNextAppointment ? "#10B981" : "#4A90E2"} 
+                  />
                 </View>
                 <View style={styles.appointmentDetails}>
                   <View style={styles.nameRow}>
@@ -724,7 +852,8 @@ export default function StylistAppointmentsScreen() {
                 />
               </View>
             </TouchableOpacity>
-          ))}
+              );
+            })}
             </ScrollView>
           )}
           </View>
@@ -953,8 +1082,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
+  filterSection: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
   searchSection: {
-    marginTop: 16,
+    marginTop: 0,
   },
   // Scrollable Appointment List (responsive to screen height)
   appointmentListScroll: {
@@ -1082,9 +1215,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.medium,
     color: '#160B53',
     flex: 1,
-  },
-  clearDateButton: {
-    padding: 4,
   },
   // Calendar Styles
   calendarCard: {
@@ -1237,10 +1367,55 @@ const styles = StyleSheet.create({
   quickFilterBadgeTextActive: {
     color: '#FFFFFF',
   },
+  // More Filters Dropdown
+  moreFiltersDropdown: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginTop: 8,
+    padding: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  moreFilterItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  moreFilterItemActive: {
+    backgroundColor: '#F3F4F6',
+  },
+  moreFilterText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#374151',
+  },
+  moreFilterTextActive: {
+    color: APP_CONFIG.primaryColor,
+    fontFamily: FONTS.semiBold,
+  },
+  moreFilterBadge: {
+    backgroundColor: '#E5E7EB',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 24,
+    alignItems: 'center',
+  },
+  moreFilterBadgeText: {
+    fontSize: 12,
+    fontFamily: FONTS.semiBold,
+    color: '#374151',
+  },
   // Search and Sort Row
   searchSortRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
   },
   searchBarContainer: {
@@ -1249,6 +1424,7 @@ const styles = StyleSheet.create({
   sortButtons: {
     flexDirection: 'row',
     gap: 8,
+    paddingTop: 0,
   },
   sortButton: {
     width: 44,
@@ -1264,6 +1440,17 @@ const styles = StyleSheet.create({
     backgroundColor: APP_CONFIG.primaryColor,
     borderColor: APP_CONFIG.primaryColor,
   },
+  dateIndicatorDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
   // List Header
   listHeader: {
     flexDirection: 'row',
@@ -1271,10 +1458,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  listTitleContainer: {
+    flex: 1,
+    marginRight: 12,
+  },
   listTitle: {
     fontSize: 18,
     fontFamily: FONTS.bold,
     color: '#160B53',
+    marginBottom: 4,
+  },
+  clearDateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+  },
+  clearDateText: {
+    fontSize: 13,
+    fontFamily: FONTS.medium,
+    color: '#6B7280',
   },
   countBadge: {
     backgroundColor: APP_CONFIG.primaryColor,
@@ -1453,6 +1656,32 @@ const styles = StyleSheet.create({
     elevation: Platform.OS === 'web' ? 0 : 3,
     width: Platform.OS === 'web' ? '100%' : undefined,
   },
+  nextAppointmentCard: {
+    backgroundColor: '#F0FDF4',
+    borderLeftWidth: 4,
+    borderLeftColor: '#10B981',
+    shadowColor: '#10B981',
+    shadowOpacity: 0.2,
+  },
+  nextUpBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#10B981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+    zIndex: 1,
+  },
+  nextUpText: {
+    fontSize: 10,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
   appointmentLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1466,6 +1695,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+  },
+  nextAppointmentIcon: {
+    backgroundColor: '#D1FAE5',
   },
   appointmentDetails: {
     flex: 1,

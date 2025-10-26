@@ -261,14 +261,8 @@ export default function StylistEarningsScreen() {
   return (
     <ScreenWrapper title="My Earnings" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <StylistSection>
-          <StylistPageTitle title="My Earnings" />
-          <Text style={styles.subtitle}>Track your service revenue and product commissions</Text>
-        </StylistSection>
-
         {/* View Filter */}
-        <StylistSection>
+        <StylistSection style={styles.filterSection}>
           <View style={styles.filterRow}>
             <StylistFilterTab
               label="Daily"
@@ -393,6 +387,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  filterSection: {
+    marginTop: 0,
   },
   subtitle: {
     fontSize: 14,

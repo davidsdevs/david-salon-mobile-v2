@@ -198,7 +198,7 @@ bundle-analyzer-report.html
 .expo-shared/
 
 # EAS
-eas.json
+# eas.json - Now tracked for team collaboration
 
 # Flipper
 ios/Flipper-Folly/
