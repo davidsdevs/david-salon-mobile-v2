@@ -2,7 +2,6 @@ import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { User, LoginRequest, LoginResponse, ApiResponse, RegisterRequest } from '../../types/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import FirebaseAuthService from '../../services/firebaseAuthService';
-import clearAllAppData from '../../utils/clearAllData';
 
 // Helper function to convert Firestore Timestamps to ISO strings
 const convertTimestampsInObject = (obj: any): any => {
@@ -110,8 +109,8 @@ export const logoutUser = createAsyncThunk(
       // Sign out from Firebase
       await FirebaseAuthService.signOut();
       
-      // Clear all app data using utility function
-      await clearAllAppData();
+      // Clear all app data from AsyncStorage
+      await AsyncStorage.clear();
       
       console.log('✅ Redux logout: Complete logout successful');
       return true;
