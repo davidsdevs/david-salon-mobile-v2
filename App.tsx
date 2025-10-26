@@ -20,7 +20,6 @@ import {
   savePushTokenToUser,
   setupNotificationListeners 
 } from './src/services/pushNotifications';
-import { EmailNotificationService } from './src/services/emailNotificationService';
 import * as Notifications from 'expo-notifications';
 
 // Keep the splash screen visible while we fetch resources
@@ -136,9 +135,6 @@ function AppContent() {
   const initializeNotifications = async () => {
     try {
       console.log('📬 Initializing notification services...');
-      
-      // Initialize email service
-      EmailNotificationService.initialize();
       
       // Register for push notifications
       const token = await registerForPushNotificationsAsync();
