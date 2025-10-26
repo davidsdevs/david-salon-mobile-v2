@@ -58,6 +58,15 @@ export default function StylistAppointmentsScreen() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarDates, setCalendarDates] = useState<Date[]>([]);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedFilter, searchQuery, selectedDate]);
 
   const mainFilterOptions = ['Today', 'Upcoming', 'All'];
   const moreFilterOptions = ['Confirmed', 'Completed', 'Cancelled'];
@@ -247,6 +256,26 @@ export default function StylistAppointmentsScreen() {
         return 0;
     }
   });
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredAppointments.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedAppointments = filteredAppointments.slice(startIndex, endIndex);
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -737,7 +766,7 @@ export default function StylistAppointmentsScreen() {
               showsVerticalScrollIndicator={true}
               nestedScrollEnabled={true}
             >
-            {filteredAppointments.map((appointment, index) => {
+            {paginatedAppointments.map((appointment, index) => {
               // Determine if this is the next appointment (first pending/confirmed/scheduled)
               const isNextAppointment = index === 0 && 
                 (appointment.status === 'confirmed' || 
@@ -855,6 +884,42 @@ export default function StylistAppointmentsScreen() {
               );
             })}
             </ScrollView>
+          )}
+          
+          {/* Pagination Controls */}
+          {filteredAppointments.length > itemsPerPage && (
+            <View style={styles.paginationContainer}>
+              <TouchableOpacity 
+                style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
+                onPress={handlePrevPage}
+                disabled={currentPage === 1}
+              >
+                <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? '#9CA3AF' : '#160B53'} />
+                <Text style={[styles.paginationButtonText, currentPage === 1 && styles.paginationButtonTextDisabled]}>
+                  Previous
+                </Text>
+              </TouchableOpacity>
+              
+              <View style={styles.paginationInfo}>
+                <Text style={styles.paginationText}>
+                  Page {currentPage} of {totalPages}
+                </Text>
+                <Text style={styles.paginationSubtext}>
+                  Showing {startIndex + 1}-{Math.min(endIndex, filteredAppointments.length)} of {filteredAppointments.length}
+                </Text>
+              </View>
+              
+              <TouchableOpacity 
+                style={[styles.paginationButton, currentPage === totalPages && styles.paginationButtonDisabled]}
+                onPress={handleNextPage}
+                disabled={currentPage === totalPages}
+              >
+                <Text style={[styles.paginationButtonText, currentPage === totalPages && styles.paginationButtonTextDisabled]}>
+                  Next
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={currentPage === totalPages ? '#9CA3AF' : '#160B53'} />
+              </TouchableOpacity>
+            </View>
           )}
           </View>
         </StylistSection>
@@ -2087,7 +2152,58 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: '#6B7280',
-    fontFamily: FONTS.medium,
+    fontFamily: FONTS.regular,
     textAlign: 'center',
+  },
+  // Pagination styles
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginTop: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  paginationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  paginationButtonDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#F9FAFB',
+  },
+  paginationButtonText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#160B53',
+  },
+  paginationButtonTextDisabled: {
+    color: '#9CA3AF',
+  },
+  paginationInfo: {
+    alignItems: 'center',
+  },
+  paginationText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+    marginBottom: 4,
+  },
+  paginationSubtext: {
+    fontSize: 12,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
   },
 });
