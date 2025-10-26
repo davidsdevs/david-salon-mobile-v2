@@ -22,6 +22,7 @@ import {
   StylistFilterTab,
   StylistCard,
   StylistBadge,
+  StylistPagination,
 } from '../../components/stylist';
 import { APP_CONFIG, FONTS } from '../../constants';
 
@@ -35,6 +36,12 @@ export default function StylistClientsScreen() {
   const { user } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedFilter, searchQuery]);
 
   // Scroll to top when screen is focused
   useFocusEffect(
@@ -198,6 +205,23 @@ export default function StylistClientsScreen() {
     return matchesSearch && matchesFilter;
   });
 
+  const totalPages = Math.ceil(filteredClients.length / itemsPerPage);
+  const paginatedClients = filteredClients.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    }
+  };
+
   const handleViewProfile = (client: Client) => {
     (navigation as any).navigate('StylistClientDetails', { client });
   };
@@ -286,7 +310,7 @@ export default function StylistClientsScreen() {
               )}
             </View>
           ) : (
-            filteredClients.map((client) => {
+            paginatedClients.map((client) => {
               const getVariant = () => {
                 if (client.type === 'X - New Client') return 'new-client';
                 if (client.type === 'R - Regular') return 'regular';
@@ -430,7 +454,7 @@ export default function StylistClientsScreen() {
               )}
             </View>
           ) : (
-            filteredClients.map((client) => {
+            paginatedClients.map((client) => {
               const getVariant = () => {
                 if (client.type === 'X - New Client') return 'new-client';
                 if (client.type === 'R - Regular') return 'regular';
@@ -465,6 +489,14 @@ export default function StylistClientsScreen() {
               );
             })
           )}
+          <StylistPagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredClients.length}
+              itemsPerPage={itemsPerPage}
+              onNextPage={handleNextPage}
+              onPrevPage={handlePrevPage}
+            />
         </StylistSection>
       </ScrollView>
     </ScreenWrapper>
