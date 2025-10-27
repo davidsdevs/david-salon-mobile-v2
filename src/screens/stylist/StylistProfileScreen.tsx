@@ -395,7 +395,7 @@ export default function StylistProfileScreen() {
                 <View style={[styles.statIconContainer, { backgroundColor: '#D1FAE5' }]}>
                   <Ionicons name="cash" size={20} color="#10B981" />
                 </View>
-                <Text style={styles.statNumber}>₱{(user as any)?.totalEarnings || 0}</Text>
+                <Text style={styles.statNumber}>₱{((user as any)?.totalEarnings || 0).toFixed(2)}</Text>
                 <Text style={styles.statLabel}>Earnings</Text>
               </View>
               <View style={styles.statCard}>
@@ -483,13 +483,13 @@ export default function StylistProfileScreen() {
           <View style={styles.quickLinksGrid}>
             <TouchableOpacity
               style={styles.quickLinkCard}
-              onPress={() => (navigation as any).navigate('StylistClients')}
+              onPress={() => (navigation as any).navigate('StylistServiceHistory')}
             >
               <View style={styles.quickLinkIcon}>
-                <Ionicons name="people" size={24} color={APP_CONFIG.primaryColor} />
+                <Ionicons name="receipt-outline" size={24} color={APP_CONFIG.primaryColor} />
               </View>
-              <Text style={styles.quickLinkTitle}>My Clients</Text>
-              <Text style={styles.quickLinkSubtitle}>View & manage</Text>
+              <Text style={styles.quickLinkTitle}>Service History</Text>
+              <Text style={styles.quickLinkSubtitle}>View transactions</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

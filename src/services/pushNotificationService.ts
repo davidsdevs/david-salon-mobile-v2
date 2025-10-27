@@ -4,16 +4,8 @@ import Constants from 'expo-constants';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
-// Configure notification behavior
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Note: Notification handler is configured in pushNotifications.ts
+// to avoid duplicate handler configuration and conflicts
 
 export interface PushNotificationData {
   title: string;

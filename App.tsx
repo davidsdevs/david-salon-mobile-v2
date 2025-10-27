@@ -8,6 +8,8 @@ import { Provider, useSelector, useDispatch } from 'react-redux';
 import { AppState, Platform, View, Text, Image } from 'react-native';
 import Constants from 'expo-constants';
 import { BookingProvider } from './src/context/BookingContext';
+import { NotificationProvider } from './src/context/NotificationContext';
+import { useForegroundNotifications } from './src/hooks/useForegroundNotifications';
 
 // Import navigation and screens
 import RootNavigator from './src/navigation/RootNavigator';
@@ -25,6 +27,13 @@ import * as Notifications from 'expo-notifications';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
+
+// Wrapper component to use notification hook inside provider
+function NotificationWrapper({ children }: { children: React.ReactNode }) {
+  // Setup foreground notifications (shows push notifications as in-app toasts)
+  useForegroundNotifications();
+  return <>{children}</>;
+}
 
 // AppContent component that can use Redux selectors
 function AppContent() {
@@ -333,14 +342,18 @@ function AppContent() {
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
-        <BookingProvider>
-          <StatusBar style="auto" />
-          <RootNavigator 
-            isOnboardingComplete={isOnboardingComplete}
-            isLoggedIn={isLoggedIn}
-            userType={userType}
-          />
-        </BookingProvider>
+        <NotificationProvider>
+          <NotificationWrapper>
+            <BookingProvider>
+              <StatusBar style="auto" />
+              <RootNavigator 
+                isOnboardingComplete={isOnboardingComplete}
+                isLoggedIn={isLoggedIn}
+                userType={userType}
+              />
+            </BookingProvider>
+          </NotificationWrapper>
+        </NotificationProvider>
       </SafeAreaProvider>
     </ErrorBoundary>
   );

@@ -13,11 +13,11 @@ const isExpoGo = Constants.appOwnership === 'expo';
 if (!isExpoGo) {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
+      shouldShowAlert: true,     // Show system notification alert
+      shouldShowBanner: true,     // Show banner notification (iOS)
+      shouldShowList: true,       // Add to notification list/tray
+      shouldPlaySound: true,      // Play notification sound
+      shouldSetBadge: true,       // Update app badge count
     }),
   });
 }

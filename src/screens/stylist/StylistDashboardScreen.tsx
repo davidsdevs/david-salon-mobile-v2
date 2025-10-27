@@ -525,7 +525,7 @@ export default function StylistDashboardScreen() {
                 <View style={[styles.statIconContainer, { backgroundColor: '#D1FAE5' }]}>
                   <Ionicons name="cash" size={20} color="#10B981" />
                 </View>
-                <Text style={[styles.statNumber, { color: '#10B981' }]}>{loading ? '-' : `₱${stats.todayEarnings.toFixed(0)}`}</Text>
+                <Text style={[styles.statNumber, { color: '#10B981' }]}>{loading ? '-' : `₱${stats.todayEarnings.toFixed(2)}`}</Text>
                 <Text style={styles.statLabel}>Earnings</Text>
               </View>
             </View>
@@ -597,83 +597,100 @@ export default function StylistDashboardScreen() {
           </View>
         ) : (
           todayAppointments.map((appointment, index) => {
-            // Check if this is the next appointment (first one that hasn't been completed/cancelled)
-            const isNextAppointment = index === 0 && 
-              appointment.status !== 'completed' && 
-              appointment.status !== 'cancelled';
-            
             return (
               <TouchableOpacity 
                 key={appointment.id}
-                style={[
-                  styles.appointmentCard,
-                  isNextAppointment && styles.nextAppointmentCard
-                ]}
+                style={styles.appointmentCard}
                 onPress={() => openAppointmentDetails(appointment)}
               >
-                {/* Next Up Badge */}
-                {isNextAppointment && (
-                  <View style={styles.nextUpBadge}>
-                    <Ionicons name="flash" size={14} color="#FFFFFF" />
-                    <Text style={styles.nextUpText}>NEXT UP</Text>
-                  </View>
-                )}
-                
-              <View style={styles.appointmentLeft}>
-                <View style={[
-                  styles.appointmentIcon,
-                  isNextAppointment && styles.nextAppointmentIcon
-                ]}>
-                  <Ionicons 
-                    name={isNextAppointment ? "time" : "calendar"} 
-                    size={20} 
-                    color={isNextAppointment ? "#10B981" : "#4A90E2"} 
-                  />
-                </View>
-                <View style={styles.appointmentDetails}>
-                  <View style={styles.nameRow}>
-                    <Text style={[
-                      styles.appointmentClient,
-                      isNextAppointment && styles.nextAppointmentText
-                    ]}>{appointment.client}</Text>
-                    <StylistBadge
-                      label={getClientType(appointment)}
-                      variant={getClientTypeVariant(getClientType(appointment))}
-                      size="small"
+                <View style={styles.appointmentLeft}>
+                  <View style={styles.appointmentIcon}>
+                    <Ionicons 
+                      name="calendar" 
+                      size={20} 
+                      color="#4A90E2" 
                     />
                   </View>
-                  <Text style={styles.appointmentStylist}>{appointment.service}</Text>
-                  <View style={styles.appointmentInfo}>
-                    <View style={styles.appointmentInfoItem}>
-                      <Ionicons name="time" size={14} color="#666" />
-                      <Text style={styles.appointmentInfoText}>
-                        {appointment.time}
+                  <View style={styles.appointmentDetails}>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.appointmentClient}>
+                        {appointment.client || 
+                         `${(appointment as any).clientFirstName || ''} ${(appointment as any).clientLastName || ''}`.trim() ||
+                         'Unknown Client'}
                       </Text>
+                      <StylistBadge
+                        label={getClientType(appointment)}
+                        variant={getClientTypeVariant(getClientType(appointment))}
+                        size="small"
+                      />
+                    </View>
+                    {/* Service Display - Only show count for multiple services */}
+                    {(appointment as any).serviceStylistPairs && (appointment as any).serviceStylistPairs.length > 0 ? (
+                      <Text style={styles.appointmentStylist}>
+                        {(appointment as any).serviceStylistPairs.length === 1 
+                          ? (appointment as any).serviceStylistPairs[0].serviceName
+                          : `${(appointment as any).serviceStylistPairs.length} Services`}
+                      </Text>
+                    ) : (
+                      <Text style={styles.appointmentStylist}>{appointment.service}</Text>
+                    )}
+                    <View style={styles.appointmentInfo}>
+                      <View style={styles.appointmentInfoItem}>
+                        <Ionicons name="time" size={14} color="#666" />
+                        <Text style={styles.appointmentInfoText}>
+                          {appointment.time || (appointment as any).appointmentTime || (appointment as any).startTime || 'N/A'}
+                        </Text>
+                      </View>
+                      {(appointment as any).branchName && (
+                        <View style={styles.appointmentInfoItem}>
+                          <Ionicons name="location" size={14} color="#666" />
+                          <Text style={styles.appointmentInfoText}>
+                            {(appointment as any).branchName}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   </View>
                 </View>
-              </View>
-              <View style={styles.appointmentRight}>
-                <Text style={styles.priceText}>{appointment.price}</Text>
-                <StylistBadge
-                  label={
-                    appointment.status === 'confirmed' ? 'Confirmed' :
-                    appointment.status === 'scheduled' ? 'Scheduled' :
-                    appointment.status === 'in_service' ? 'In Service' :
-                    appointment.status === 'completed' ? 'Completed' :
-                    appointment.status === 'cancelled' ? 'Cancelled' : appointment.status
-                  }
-                  variant={
-                    appointment.status === 'confirmed' ? 'confirmed' :
-                    appointment.status === 'scheduled' ? 'scheduled' :
-                    appointment.status === 'in_service' ? 'in-service' :
-                    appointment.status === 'completed' ? 'completed' :
-                    appointment.status === 'cancelled' ? 'cancelled' : 'default'
-                  }
-                  size="small"
-                />
-              </View>
-            </TouchableOpacity>
+                <View style={styles.appointmentRight}>
+                  <Text style={styles.priceText}>
+                    ₱{(() => {
+                      // Calculate total price from serviceStylistPairs if available
+                      if ((appointment as any).serviceStylistPairs && (appointment as any).serviceStylistPairs.length > 0) {
+                        const total = (appointment as any).serviceStylistPairs.reduce(
+                          (sum: number, pair: any) => sum + (pair.servicePrice || 0), 
+                          0
+                        );
+                        return total.toFixed(2);
+                      }
+                      // Fallback to existing price fields
+                      const priceValue = typeof appointment.price === 'string' 
+                        ? parseFloat(appointment.price.replace(/[^0-9.]/g, '')) || 0
+                        : appointment.price || 0;
+                      return priceValue.toFixed(2);
+                    })()}
+                  </Text>
+                  <StylistBadge
+                    label={
+                      appointment.status === 'confirmed' ? 'Confirmed' :
+                      appointment.status === 'scheduled' ? 'Scheduled' :
+                      appointment.status === 'in_service' ? 'In Service' :
+                      appointment.status === 'completed' ? 'Completed' :
+                      appointment.status === 'cancelled' ? 'Cancelled' :
+                      appointment.status === 'pending' ? 'Pending' : appointment.status
+                    }
+                    variant={
+                      appointment.status === 'confirmed' ? 'confirmed' :
+                      appointment.status === 'scheduled' ? 'scheduled' :
+                      appointment.status === 'in_service' ? 'in-service' :
+                      appointment.status === 'completed' ? 'completed' :
+                      appointment.status === 'cancelled' ? 'cancelled' :
+                      appointment.status === 'pending' ? 'pending' : 'default'
+                    }
+                    size="small"
+                  />
+                </View>
+              </TouchableOpacity>
             );
           })
         )}

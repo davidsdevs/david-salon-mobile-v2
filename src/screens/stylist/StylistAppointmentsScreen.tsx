@@ -844,39 +844,18 @@ export default function StylistAppointmentsScreen() {
               nestedScrollEnabled={true}
             >
             {paginatedAppointments.map((appointment, index) => {
-              // Determine if this is the next appointment (first pending/confirmed/scheduled)
-              const isNextAppointment = index === 0 && 
-                (appointment.status === 'confirmed' || 
-                 appointment.status === 'scheduled' || 
-                 appointment.status === 'pending') &&
-                selectedFilter === 'Today';
-              
               return (
             <TouchableOpacity 
               key={appointment.id} 
-              style={[
-                styles.appointmentCard,
-                isNextAppointment && styles.nextAppointmentCard
-              ]}
+              style={styles.appointmentCard}
               onPress={() => handleAppointmentPress(appointment)}
             >
-              {/* Next Up Badge */}
-              {isNextAppointment && (
-                <View style={styles.nextUpBadge}>
-                  <Ionicons name="flash" size={12} color="#FFFFFF" />
-                  <Text style={styles.nextUpText}>NEXT UP</Text>
-                </View>
-              )}
-              
               <View style={styles.appointmentLeft}>
-                <View style={[
-                  styles.appointmentIcon,
-                  isNextAppointment && styles.nextAppointmentIcon
-                ]}>
+                <View style={styles.appointmentIcon}>
                   <Ionicons 
-                    name={isNextAppointment ? "flash" : "calendar"} 
+                    name="calendar" 
                     size={20} 
-                    color={isNextAppointment ? "#10B981" : "#4A90E2"} 
+                    color="#4A90E2" 
                   />
                 </View>
                 <View style={styles.appointmentDetails}>
@@ -1134,7 +1113,7 @@ export default function StylistAppointmentsScreen() {
                       <View style={styles.modalDetailContent}>
                         <Text style={styles.modalDetailLabel}>Price</Text>
                         <Text style={styles.modalDetailValue}>
-                          ₱{(selectedAppointment as any).price || (selectedAppointment as any).finalPrice || 0}
+                          ₱{((selectedAppointment as any).price || (selectedAppointment as any).finalPrice || 0).toFixed(2)}
                         </Text>
                       </View>
                     </View>

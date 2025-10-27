@@ -7,7 +7,7 @@ import { StylistTabParamList } from '../types';
 // Import stylist screens
 import StylistDashboardScreen from '../screens/stylist/StylistDashboardScreen';
 import StylistAppointmentsScreen from '../screens/stylist/StylistAppointmentsScreen';
-import StylistClientsScreen from '../screens/stylist/StylistClientsScreen';
+import StylistServiceHistoryScreen from '../screens/stylist/StylistServiceHistoryScreen';
 import StylistPortfolioScreen from '../screens/stylist/StylistPortfolioScreen';
 import StylistProfileScreen from '../screens/stylist/StylistProfileScreen';
 
@@ -53,10 +53,10 @@ export default function StylistWebNavigator() {
           </ScreenWrapper>
         )}
       </Stack.Screen>
-      <Stack.Screen name="StylistClients">
+      <Stack.Screen name="StylistServiceHistory">
         {() => (
-          <ScreenWrapper screenName="StylistClients">
-            <StylistClientsScreen />
+          <ScreenWrapper screenName="StylistServiceHistory">
+            <StylistServiceHistoryScreen />
           </ScreenWrapper>
         )}
       </Stack.Screen>

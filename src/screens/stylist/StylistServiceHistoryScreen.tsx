@@ -28,17 +28,17 @@ import { APP_CONFIG, FONTS } from '../../constants';
 
 const { width } = Dimensions.get('window');
 
-export default function StylistClientsScreen() {
+export default function StylistServiceHistoryScreen() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState('All Clients');
+  const [selectedFilter, setSelectedFilter] = useState('All Types');
   const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
   const navigation = useNavigation();
   const scrollViewRef = useRef<ScrollView>(null);
   const { user } = useAuth();
-  const [clients, setClients] = useState<Client[]>([]);
+  const [clients, setClients] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
+  const itemsPerPage = 10;
 
   useEffect(() => {
     setCurrentPage(1);
@@ -51,24 +51,23 @@ export default function StylistClientsScreen() {
     }, [])
   );
 
-  interface Client {
-    id: number;
+  interface Transaction {
+    id: string;
     name: string;
     service: string;
-    duration: string;
+    date: string;
     type: 'X - New Client' | 'R - Regular' | 'TR - Transfer';
-    notes: string;
-    phone: string;
-    email: string;
-    memberSince: string;
-    totalVisits: number;
-    lastVisit: string;
-    totalSpent: string;
-    allergies?: string;
-    colorFormula?: string;
+    amount: string;
+    paymentMethod: string;
+    status: string;
+    clientInfo: {
+      name: string;
+      email: string;
+      phone: string;
+    };
   }
 
-  // Set up real-time subscription for clients data
+  // Set up real-time subscription for transactions data
   useEffect(() => {
     if (!user?.id && !user?.uid) {
       setLoading(false);
@@ -77,132 +76,92 @@ export default function StylistClientsScreen() {
 
     setLoading(true);
     const stylistId = user.uid || user.id;
-    console.log('🔄 Setting up real-time subscription for clients of stylist:', stylistId);
+    console.log('🔄 Setting up real-time subscription for transactions of stylist:', stylistId);
 
-    const appointmentsRef = collection(db, COLLECTIONS.APPOINTMENTS);
+    const transactionsRef = collection(db, 'transactions');
     
-    // Set up real-time listener for appointments
-    const unsubscribe = onSnapshot(appointmentsRef, async (querySnapshot) => {
+    // Set up real-time listener for transactions
+    const unsubscribe = onSnapshot(transactionsRef, async (querySnapshot) => {
       try {
-        console.log('📡 Real-time update received for clients:', querySnapshot.size, 'appointments');
+        console.log('📡 Real-time update received for transactions:', querySnapshot.size, 'total');
         
-        const allAppointments: any[] = [];
+        const transactionsList: Transaction[] = [];
         
-        querySnapshot.docs.forEach(doc => {
-          const data = doc.data();
-          const hasStylist = data.stylistId === stylistId || 
-                            data.assignedStylistId === stylistId ||
-                            (data.serviceStylistPairs && data.serviceStylistPairs.some((p: any) => p.stylistId === stylistId));
-          if (hasStylist) {
-            allAppointments.push({ id: doc.id, ...data });
+        querySnapshot.docs.forEach(docSnap => {
+          const data = docSnap.data();
+          
+          // Check if this transaction has services for this stylist
+          if (data['services'] && Array.isArray(data['services'])) {
+            data['services'].forEach((service: any) => {
+              if (service.stylistId === stylistId) {
+                // Map client type from service
+                let clientType: 'X - New Client' | 'R - Regular' | 'TR - Transfer' = 'R - Regular';
+                if (service.clientType === 'X') clientType = 'X - New Client';
+                else if (service.clientType === 'R') clientType = 'R - Regular';
+                else if (service.clientType === 'TR') clientType = 'TR - Transfer';
+                
+                // Format date
+                const transactionDate = data['createdAt']?.toDate 
+                  ? new Date(data['createdAt'].toDate()).toLocaleDateString('en-US', { 
+                      month: 'short', 
+                      day: 'numeric', 
+                      year: 'numeric' 
+                    })
+                  : 'N/A';
+                
+                transactionsList.push({
+                  id: docSnap.id,
+                  name: data['clientInfo']?.name || 'Unknown Client',
+                  service: service.serviceName || 'Unknown Service',
+                  date: transactionDate,
+                  type: clientType,
+                  amount: `₱${(service.total || service.adjustedPrice || 0).toFixed(2)}`,
+                  paymentMethod: data['paymentMethod'] || 'N/A',
+                  status: data['status'] || 'pending',
+                  clientInfo: {
+                    name: data['clientInfo']?.name || 'Unknown',
+                    email: data['clientInfo']?.email || 'N/A',
+                    phone: data['clientInfo']?.phone || 'N/A',
+                  },
+                });
+              }
+            });
           }
         });
+        
+        // Sort by date (newest first)
+        transactionsList.sort((a, b) => {
+          const dateA = new Date(a.date);
+          const dateB = new Date(b.date);
+          return dateB.getTime() - dateA.getTime();
+        });
 
-        console.log('📊 Total appointments found:', allAppointments.length);
-
-        // Remove duplicates
-        const uniqueAppointments = allAppointments.filter((apt, index, self) => 
-          index === self.findIndex(a => a.id === apt.id)
-        );
-
-        const clientMap = new Map();
-
-        // Process each appointment to build client list
-        for (const appointmentData of uniqueAppointments) {
-          const clientId = appointmentData.clientId;
-
-          if (!clientId) continue;
-
-          if (!clientMap.has(clientId)) {
-            // Fetch client details
-            const clientDoc = await getDoc(doc(db, COLLECTIONS.USERS, clientId));
-            if (clientDoc.exists()) {
-              const clientData = clientDoc.data();
-              
-              // Count appointments for this client with this stylist
-              const clientAppointments = uniqueAppointments.filter(apt => 
-                apt.clientId === clientId && apt.status !== 'cancelled'
-              );
-              
-              // Determine client type based on appointment count
-              let clientType: 'X - New Client' | 'R - Regular' | 'TR - Transfer' = 'R - Regular';
-              if (clientAppointments.length === 1) {
-                clientType = 'X - New Client';
-              } else if (clientAppointments.length >= 2) {
-                clientType = 'R - Regular';
-              }
-              
-              // Check if client has clientType field in their data
-              if (clientData.clientType) {
-                if (clientData.clientType === 'new') clientType = 'X - New Client';
-                else if (clientData.clientType === 'regular') clientType = 'R - Regular';
-                else if (clientData.clientType === 'transfer') clientType = 'TR - Transfer';
-              }
-              
-              // Calculate total spent
-              const totalSpent = clientAppointments.reduce((sum, apt) => {
-                return sum + (apt.price || apt.finalPrice || 0);
-              }, 0);
-              
-              // Get last visit date
-              const sortedAppointments = clientAppointments
-                .filter(apt => apt.appointmentDate || apt.date)
-                .sort((a, b) => {
-                  const dateA = new Date(a.appointmentDate || a.date);
-                  const dateB = new Date(b.appointmentDate || b.date);
-                  return dateB.getTime() - dateA.getTime();
-                });
-              
-              const lastVisit = sortedAppointments.length > 0 
-                ? new Date(sortedAppointments[0].appointmentDate || sortedAppointments[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                : 'N/A';
-              
-              clientMap.set(clientId, {
-                id: clientId,
-                name: `${clientData.firstName || ''} ${clientData.lastName || ''}`.trim() || 'Unknown Client',
-                service: 'Various Services',
-                duration: '1-3 hours',
-                type: clientType,
-                notes: clientData.notes || '',
-                phone: clientData.phone || 'N/A',
-                email: clientData.email || 'N/A',
-                memberSince: clientData.memberSince?.toDate ? new Date(clientData.memberSince.toDate()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A',
-                totalVisits: clientAppointments.length,
-                lastVisit: lastVisit,
-                totalSpent: `₱${totalSpent.toFixed(2)}`,
-                allergies: clientData.allergies || 'None',
-                colorFormula: clientData.colorFormula || '',
-              });
-            }
-          }
-        }
-
-        const clientsList = Array.from(clientMap.values());
-        console.log('✅ Real-time clients update:', clientsList.length);
-        setClients(clientsList);
+        console.log('✅ Real-time transactions update:', transactionsList.length);
+        setClients(transactionsList);
         setLoading(false);
       } catch (error) {
-        console.error('❌ Error processing real-time clients update:', error);
+        console.error('❌ Error processing real-time transactions update:', error);
         setClients([]);
         setLoading(false);
       }
     }, (error) => {
-      console.error('❌ Real-time clients listener error:', error);
+      console.error('❌ Real-time transactions listener error:', error);
       setLoading(false);
     });
 
     // Cleanup listener on unmount
     return () => {
-      console.log('🧹 Cleaning up clients subscription');
+      console.log('🧹 Cleaning up transactions subscription');
       unsubscribe();
     };
   }, [user?.id, user?.uid]);
 
-  const filterOptions = ['All Clients', 'X - New Client', 'R - Regular', 'TR - Transfer'];
+  const filterOptions = ['All Types', 'X - New Client', 'R - Regular', 'TR - Transfer'];
 
   const filteredClients = clients.filter(client => {
-    const matchesSearch = client.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFilter = selectedFilter === 'All Clients' || client.type === selectedFilter;
+    const matchesSearch = client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         client.service.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter = selectedFilter === 'All Types' || client.type === selectedFilter;
     return matchesSearch && matchesFilter;
   });
 
@@ -223,8 +182,8 @@ export default function StylistClientsScreen() {
     }
   };
 
-  const handleViewProfile = (client: Client) => {
-    (navigation as any).navigate('StylistClientDetails', { client });
+  const handleViewProfile = (transaction: Transaction) => {
+    (navigation as any).navigate('StylistTransactionDetails', { client: transaction });
   };
 
   const getClientTypeBadgeColor = (type: string) => {
@@ -250,7 +209,7 @@ export default function StylistClientsScreen() {
             <StylistSearchBar
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder="Search Clients"
+              placeholder="Search by client or service..."
             />
           </View>
         </StylistSection>
@@ -283,7 +242,7 @@ export default function StylistClientsScreen() {
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#160B53" />
-              <Text style={styles.loadingText}>Loading clients...</Text>
+              <Text style={styles.loadingText}>Loading service history...</Text>
             </View>
           ) : filteredClients.length === 0 ? (
             <View style={styles.emptyContainer}>
@@ -291,14 +250,14 @@ export default function StylistClientsScreen() {
                 <Ionicons name="people" size={48} color="#EC4899" />
               </View>
               <Text style={styles.emptyTitle}>
-                {searchQuery ? 'No Matching Clients' : 'No Clients Yet'}
+                {searchQuery ? 'No Matching Records' : 'No Service History'}
               </Text>
               <Text style={styles.emptyMessage}>
                 {searchQuery 
-                  ? `No clients match "${searchQuery}". Try a different search term.`
-                  : selectedFilter !== 'All Clients'
-                    ? `You don't have any ${selectedFilter.replace('X - ', '').replace('R - ', '').replace('TR - ', '').toLowerCase()}s assigned to you yet.`
-                    : 'You haven\'t served any clients yet. New clients will appear here after their first appointment.'}
+                  ? `No records match "${searchQuery}". Try a different search term.`
+                  : selectedFilter !== 'All Types'
+                    ? `No ${selectedFilter.replace('X - ', '').replace('R - ', '').replace('TR - ', '').toLowerCase()} transactions found.`
+                    : 'Your service history will appear here after completing appointments.'}
               </Text>
               {searchQuery && (
                 <TouchableOpacity 
@@ -336,8 +295,12 @@ export default function StylistClientsScreen() {
                       <Text style={styles.clientService}>{client.service}</Text>
                       <View style={styles.clientInfoRow}>
                         <View style={styles.clientInfoItem}>
-                          <Ionicons name="time" size={14} color="#666" />
-                          <Text style={styles.clientInfoText}>{client.duration}</Text>
+                          <Ionicons name="calendar-outline" size={14} color="#666" />
+                          <Text style={styles.clientInfoText}>{client.date}</Text>
+                        </View>
+                        <View style={styles.clientInfoItem}>
+                          <Ionicons name="cash-outline" size={14} color="#666" />
+                          <Text style={styles.clientInfoText}>{client.amount}</Text>
                         </View>
                       </View>
                     </View>
@@ -360,7 +323,7 @@ export default function StylistClientsScreen() {
   };
   // For mobile, use ScreenWrapper with header
   return (
-    <ScreenWrapper title="Clients" userType="stylist" showBackButton={true}>
+    <ScreenWrapper title="Service History" userType="stylist" showBackButton={true}>
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Search and Sort */}
         <StylistSection>
@@ -369,7 +332,7 @@ export default function StylistClientsScreen() {
               <StylistSearchBar
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholder="Search by name..."
+                placeholder="Search by client or service..."
               />
             </View>
             <View style={styles.sortButtons}>
@@ -389,21 +352,21 @@ export default function StylistClientsScreen() {
                 {sortDropdownVisible && (
                   <View style={styles.sortDropdown}>
                     <TouchableOpacity 
-                      style={[styles.sortDropdownItem, selectedFilter === 'All Clients' && styles.sortDropdownItemActive]}
+                      style={[styles.sortDropdownItem, selectedFilter === 'All Types' && styles.sortDropdownItemActive]}
                       onPress={() => {
-                        setSelectedFilter('All Clients');
+                        setSelectedFilter('All Types');
                         setSortDropdownVisible(false);
                       }}
                     >
                       <Ionicons 
-                        name="people-outline" 
+                        name="list-outline" 
                         size={18} 
-                        color={selectedFilter === 'All Clients' ? '#160B53' : '#6B7280'} 
+                        color={selectedFilter === 'All Types' ? '#160B53' : '#6B7280'} 
                       />
-                      <Text style={[styles.sortDropdownText, selectedFilter === 'All Clients' && styles.sortDropdownTextActive]}>
-                        All Clients ({stats.total})
+                      <Text style={[styles.sortDropdownText, selectedFilter === 'All Types' && styles.sortDropdownTextActive]}>
+                        All Types ({stats.total})
                       </Text>
-                      {selectedFilter === 'All Clients' && (
+                      {selectedFilter === 'All Types' && (
                         <Ionicons name="checkmark" size={18} color="#160B53" />
                       )}
                     </TouchableOpacity>
@@ -477,7 +440,7 @@ export default function StylistClientsScreen() {
         {/* Clients List */}
         <StylistSection>
           <View style={styles.listHeader}>
-            <Text style={styles.listTitle}>All Clients</Text>
+            <Text style={styles.listTitle}>Service History</Text>
             <View style={styles.countBadge}>
               <Text style={styles.countText}>{filteredClients.length}</Text>
             </View>
@@ -485,7 +448,7 @@ export default function StylistClientsScreen() {
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#160B53" />
-              <Text style={styles.loadingText}>Loading clients...</Text>
+              <Text style={styles.loadingText}>Loading service history...</Text>
             </View>
           ) : filteredClients.length === 0 ? (
             <View style={styles.emptyContainer}>
@@ -493,14 +456,14 @@ export default function StylistClientsScreen() {
                 <Ionicons name="people" size={48} color="#EC4899" />
               </View>
               <Text style={styles.emptyTitle}>
-                {searchQuery ? 'No Matching Clients' : 'No Clients Yet'}
+                {searchQuery ? 'No Matching Records' : 'No Service History'}
               </Text>
               <Text style={styles.emptyMessage}>
                 {searchQuery 
-                  ? `No clients match "${searchQuery}". Try a different search term.`
-                  : selectedFilter !== 'All Clients'
-                    ? `You don't have any ${selectedFilter.replace('X - ', '').replace('R - ', '').replace('TR - ', '').toLowerCase()}s assigned to you yet.`
-                    : 'You haven\'t served any clients yet. New clients will appear here after their first appointment.'}
+                  ? `No records match "${searchQuery}". Try a different search term.`
+                  : selectedFilter !== 'All Types'
+                    ? `No ${selectedFilter.replace('X - ', '').replace('R - ', '').replace('TR - ', '').toLowerCase()} transactions found.`
+                    : 'Your service history will appear here after completing appointments.'}
               </Text>
               {searchQuery && (
                 <TouchableOpacity 
@@ -538,8 +501,12 @@ export default function StylistClientsScreen() {
                       <Text style={styles.clientService}>{client.service}</Text>
                       <View style={styles.clientInfoRow}>
                         <View style={styles.clientInfoItem}>
-                          <Ionicons name="time" size={14} color="#666" />
-                          <Text style={styles.clientInfoText}>{client.duration}</Text>
+                          <Ionicons name="calendar-outline" size={14} color="#666" />
+                          <Text style={styles.clientInfoText}>{client.date}</Text>
+                        </View>
+                        <View style={styles.clientInfoItem}>
+                          <Ionicons name="cash-outline" size={14} color="#666" />
+                          <Text style={styles.clientInfoText}>{client.amount}</Text>
                         </View>
                       </View>
                     </View>

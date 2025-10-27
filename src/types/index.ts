@@ -12,11 +12,11 @@ export type RootStackParamList = {
   StylistNotifications: undefined;
   Settings: undefined;
   StylistProfile: undefined;
-  StylistClients: undefined;
+  StylistServiceHistory: undefined;
   StylistPortfolio: undefined;
   StylistEditProfile: undefined;
   StylistChangePassword: undefined;
-  StylistClientDetails: { client: any };
+  StylistTransactionDetails: { client: any };
 };
 
 export type MainTabParamList = {

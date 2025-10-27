@@ -84,82 +84,128 @@ export default function StylistEarningsScreen() {
 
     setLoading(true);
     const stylistId = user.uid || user.id;
-    console.log('🔄 Setting up real-time subscription for earnings:', stylistId);
+    console.log('🔄 Setting up real-time subscription for earnings:', {
+      stylistId,
+      userUid: user.uid,
+      userId: user.id,
+      fullUser: user
+    });
 
-    // Fetch completed appointments (services)
-    const appointmentsRef = collection(db, COLLECTIONS.APPOINTMENTS);
-    const appointmentsQuery = query(
-      appointmentsRef,
-      where('status', '==', 'completed')
-    );
+    // Fetch from transactions collection
+    const transactionsRef = collection(db, 'transactions');
 
-    const unsubscribe = onSnapshot(appointmentsQuery, async (querySnapshot) => {
+    const unsubscribe = onSnapshot(transactionsRef, async (querySnapshot) => {
       try {
-        console.log('📡 Real-time earnings update received:', querySnapshot.size, 'transactions');
+        console.log('📡 Real-time earnings update received:', querySnapshot.size, 'total transactions');
         const fetchedTransactions: Transaction[] = [];
 
         querySnapshot.forEach((doc) => {
           const data = doc.data();
           
-          // Check if appointment belongs to this stylist
-          const hasStylist = data['stylistId'] === stylistId || 
-                            data['assignedStylistId'] === stylistId ||
-                            (data['serviceStylistPairs'] && 
-                             data['serviceStylistPairs'].some((p: any) => p.stylistId === stylistId));
+          // Check if this transaction has services for this stylist
+          if (data['services'] && Array.isArray(data['services'])) {
+            data['services'].forEach((service: any) => {
+              console.log('🔍 Checking service:', {
+                transactionId: doc.id,
+                serviceStylistId: service.stylistId,
+                currentStylistId: stylistId,
+                matches: service.stylistId === stylistId
+              });
+              
+              if (service.stylistId === stylistId) {
+                // Format date and time
+                const transactionDate = data['createdAt']?.toDate
+                  ? data['createdAt'].toDate().toISOString().split('T')[0]
+                  : new Date().toISOString().split('T')[0];
+                
+                const transactionTime = data['createdAt']?.toDate
+                  ? data['createdAt'].toDate().toLocaleTimeString('en-US', { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    })
+                  : '';
 
-          if (hasStylist) {
-            const appointmentDate = data['appointmentDate'] || data['date'] || '';
-            const appointmentTime = data['appointmentTime'] || data['startTime'] || '';
-            
-            // Calculate total price from serviceStylistPairs
-            let totalAmount = 0;
-            if (data['serviceStylistPairs'] && data['serviceStylistPairs'].length > 0) {
-              totalAmount = data['serviceStylistPairs'].reduce(
-                (sum: number, pair: any) => sum + (pair.servicePrice || 0), 
-                0
-              );
-            } else {
-              totalAmount = data['price'] || data['finalPrice'] || 0;
-            }
+                // Calculate commission (60% of service total)
+                const serviceTotal = service.total || service.adjustedPrice || 0;
+                const commission = serviceTotal * 0.6;
 
-            // Get service description
-            let serviceDescription = 'Service';
-            if (data['serviceStylistPairs'] && data['serviceStylistPairs'].length > 0) {
-              serviceDescription = data['serviceStylistPairs'].length === 1
-                ? data['serviceStylistPairs'][0].serviceName
-                : `${data['serviceStylistPairs'].length} Services`;
-            }
+                console.log('✅ Adding service to earnings:', {
+                  clientName: data['clientInfo']?.name,
+                  serviceName: service.serviceName,
+                  amount: serviceTotal,
+                  commission: commission,
+                  date: transactionDate
+                });
 
-            // Calculate commission (example: 60% of service price goes to stylist)
-            const commission = totalAmount * 0.6;
-
-            fetchedTransactions.push({
-              id: doc.id,
-              type: 'service',
-              clientName: data['clientName'] || 
-                         `${data['clientFirstName'] || ''} ${data['clientLastName'] || ''}`.trim() ||
-                         'Unknown Client',
-              description: serviceDescription,
-              amount: totalAmount,
-              commission: commission,
-              date: appointmentDate,
-              time: appointmentTime,
-              status: 'completed',
+                fetchedTransactions.push({
+                  id: doc.id + '_' + service.serviceId, // Unique ID for each service
+                  type: 'service',
+                  clientName: data['clientInfo']?.name || 'Unknown Client',
+                  description: service.serviceName || 'Service',
+                  amount: serviceTotal,
+                  commission: commission,
+                  date: transactionDate,
+                  time: transactionTime,
+                  status: data['status'] === 'completed' ? 'completed' : 'pending',
+                });
+              }
             });
+          }
+
+          // Add product commissions if stylist sold products
+          if (data['products'] && Array.isArray(data['products']) && data['products'].length > 0) {
+            // Check if this transaction has services by this stylist (they get product commission)
+            const hasStylistService = data['services']?.some((s: any) => s.stylistId === stylistId);
+            
+            if (hasStylistService) {
+              data['products'].forEach((product: any) => {
+                const transactionDate = data['createdAt']?.toDate
+                  ? data['createdAt'].toDate().toISOString().split('T')[0]
+                  : new Date().toISOString().split('T')[0];
+                
+                const transactionTime = data['createdAt']?.toDate
+                  ? data['createdAt'].toDate().toLocaleTimeString('en-US', { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    })
+                  : '';
+
+                // Product commission (10% of product total)
+                const productTotal = product.total || 0;
+                const commission = productTotal * 0.1;
+
+                fetchedTransactions.push({
+                  id: doc.id + '_' + product.productId,
+                  type: 'product',
+                  clientName: data['clientInfo']?.name || 'Unknown Client',
+                  description: `${product.productName} (x${product.quantity})`,
+                  amount: productTotal,
+                  commission: commission,
+                  date: transactionDate,
+                  time: transactionTime,
+                  status: data['status'] === 'completed' ? 'completed' : 'pending',
+                });
+              });
+            }
           }
         });
 
-        // TODO: Add product sales transactions when implemented
-        // For now, we'll just have service transactions
-
         // Sort by date and time (newest first)
         fetchedTransactions.sort((a, b) => {
-          const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime();
-          if (dateCompare !== 0) return dateCompare;
-          return b.time.localeCompare(a.time);
+          const dateCompare = new Date(b.date + ' ' + b.time).getTime() - new Date(a.date + ' ' + a.time).getTime();
+          return dateCompare;
         });
 
-        console.log('✅ Real-time earnings updated:', fetchedTransactions.length);
+        console.log('✅ Real-time earnings updated:', {
+          totalTransactions: fetchedTransactions.length,
+          transactions: fetchedTransactions.map(t => ({
+            id: t.id,
+            client: t.clientName,
+            description: t.description,
+            amount: t.amount,
+            date: t.date
+          }))
+        });
         setTransactions(fetchedTransactions);
         setLoading(false);
       } catch (error) {
@@ -455,6 +501,27 @@ export default function StylistEarningsScreen() {
                 )}
               </View>
             </View>
+          </View>
+        </StylistSection>
+
+        {/* View Filter Tabs */}
+        <StylistSection>
+          <View style={styles.filterRow}>
+            <StylistFilterTab
+              label="Daily"
+              isActive={selectedView === 'daily'}
+              onPress={() => setSelectedView('daily')}
+            />
+            <StylistFilterTab
+              label="Weekly"
+              isActive={selectedView === 'weekly'}
+              onPress={() => setSelectedView('weekly')}
+            />
+            <StylistFilterTab
+              label="Monthly"
+              isActive={selectedView === 'monthly'}
+              onPress={() => setSelectedView('monthly')}
+            />
           </View>
         </StylistSection>
 
