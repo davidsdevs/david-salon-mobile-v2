@@ -48,6 +48,8 @@ export default function StylistPortfolioScreen() {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedStatus, setSelectedStatus] = useState<'all' | 'pending' | 'approved'>('all');
+  const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -119,31 +121,34 @@ export default function StylistPortfolioScreen() {
     };
   }, [user?.uid, user?.id]);
 
-  // Separate approved and pending items
-  const approvedItems = portfolioItems.filter(i => i.status === 'approved');
-  const pendingItems = portfolioItems.filter(i => i.status === 'pending');
-  const rejectedItems = portfolioItems.filter(i => i.status === 'rejected');
-
-  // Calculate stats (only approved items)
-  const stats = {
-    total: approvedItems.length,
-    pending: pendingItems.length,
-    rejected: rejectedItems.length,
-    haircut: approvedItems.filter(i => i.category === 'Haircut').length,
-    color: approvedItems.filter(i => i.category === 'Color').length,
-    styling: approvedItems.filter(i => i.category === 'Styling').length,
-    treatment: approvedItems.filter(i => i.category === 'Treatment').length,
-  };
-
-  // Filter only approved items for display
-  const filteredItems = approvedItems
+  // Filter items by category, status and search
+  const filteredItems = portfolioItems
     .filter(item => {
+      // Filter by category
       const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
+      
+      // Filter by status
+      const matchesStatus = selectedStatus === 'all' || item.status === selectedStatus;
+      
+      // Filter by search query
       const matchesSearch = searchQuery === '' || 
         item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchesCategory && matchesSearch;
+      
+      return matchesCategory && matchesStatus && matchesSearch;
     });
+
+  // Calculate stats
+  const stats = {
+    all: portfolioItems.length,
+    pending: portfolioItems.filter(i => i.status === 'pending').length,
+    approved: portfolioItems.filter(i => i.status === 'approved').length,
+    haircut: portfolioItems.filter(i => i.category === 'Haircut').length,
+    color: portfolioItems.filter(i => i.category === 'Color').length,
+    styling: portfolioItems.filter(i => i.category === 'Styling').length,
+    treatment: portfolioItems.filter(i => i.category === 'Treatment').length,
+  };
 
   // Request permissions on mount
   useEffect(() => {
@@ -406,7 +411,7 @@ export default function StylistPortfolioScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.categoryContainer}>
               {categories.map((category) => {
-                const count = category === 'All' ? stats.total :
+                const count = category === 'All' ? portfolioItems.length :
                              category === 'Haircut' ? stats.haircut :
                              category === 'Color' ? stats.color :
                              category === 'Styling' ? stats.styling :
@@ -449,65 +454,100 @@ export default function StylistPortfolioScreen() {
           </ScrollView>
         </StylistSection>
 
-        {/* Search */}
-        <StylistSection style={styles.searchSection}>
-          <StylistSearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search by title..."
-          />
-        </StylistSection>
+        {/* Search and Filter */}
+        <StylistSection>
+          <View style={styles.searchSortRow}>
+            <View style={styles.searchBarContainer}>
+              <StylistSearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search portfolio..."
+              />
+            </View>
+            <View style={styles.sortButtons}>
+              {/* Filter Dropdown Button */}
+              <View style={styles.sortContainer}>
+                <TouchableOpacity 
+                  style={[styles.sortButton, sortDropdownVisible && styles.sortButtonActive]}
+                  onPress={() => setSortDropdownVisible(!sortDropdownVisible)}
+                >
+                  <Ionicons 
+                    name="swap-vertical" 
+                    size={18} 
+                    color={sortDropdownVisible ? '#FFFFFF' : '#6B7280'} 
+                  />
+                </TouchableOpacity>
+                {/* Filter Dropdown Menu */}
+                {sortDropdownVisible && (
+                  <View style={styles.sortDropdown}>
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, selectedStatus === 'all' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSelectedStatus('all');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="list-outline" 
+                        size={18} 
+                        color={selectedStatus === 'all' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, selectedStatus === 'all' && styles.sortDropdownTextActive]}>
+                        All ({stats.all})
+                      </Text>
+                      {selectedStatus === 'all' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
 
-        {/* Pending Approval Section */}
-        {pendingItems.length > 0 && (
-          <StylistSection>
-            <View style={styles.listHeader}>
-              <Text style={styles.listTitle}>Pending Approval</Text>
-              <View style={styles.pendingBadge}>
-                <Ionicons name="time-outline" size={14} color="#F59E0B" />
-                <Text style={styles.pendingBadgeText}>{pendingItems.length}</Text>
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, selectedStatus === 'pending' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSelectedStatus('pending');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="time-outline" 
+                        size={18} 
+                        color={selectedStatus === 'pending' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, selectedStatus === 'pending' && styles.sortDropdownTextActive]}>
+                        Pending ({stats.pending})
+                      </Text>
+                      {selectedStatus === 'pending' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, selectedStatus === 'approved' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSelectedStatus('approved');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="checkmark-circle-outline" 
+                        size={18} 
+                        color={selectedStatus === 'approved' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, selectedStatus === 'approved' && styles.sortDropdownTextActive]}>
+                        Approved ({stats.approved})
+                      </Text>
+                      {selectedStatus === 'approved' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             </View>
-            <View style={styles.pendingInfo}>
-              <Ionicons name="information-circle" size={20} color="#F59E0B" />
-              <Text style={styles.pendingInfoText}>
-                Waiting for branch manager approval
-              </Text>
-            </View>
-            <View style={styles.galleryGrid}>
-              {pendingItems.map((item) => (
-                <View key={item.id} style={styles.galleryCard}>
-                  <View style={styles.imageContainer}>
-                    {item.imageUrl ? (
-                      <Image source={{ uri: item.imageUrl }} style={styles.portfolioImage} />
-                    ) : (
-                      <Ionicons name="image" size={50} color="#CCCCCC" />
-                    )}
-                    <View style={styles.pendingOverlay}>
-                      <Ionicons name="time" size={24} color="#FFFFFF" />
-                      <Text style={styles.pendingOverlayText}>Pending</Text>
-                    </View>
-                  </View>
-                  <View style={styles.galleryCardInfo}>
-                    <Text style={styles.galleryCardTitle}>{item.title}</Text>
-                    <View style={styles.galleryCardFooter}>
-                      <Text style={styles.categoryTag}>{item.category}</Text>
-                    </View>
-                  </View>
-                </View>
-              ))}
-            </View>
-          </StylistSection>
-        )}
-
-        {/* Approved Gallery Grid */}
-        <StylistSection>
-          <View style={styles.listHeader}>
-            <Text style={styles.listTitle}>Approved Work</Text>
-            <View style={styles.countBadge}>
-              <Text style={styles.countText}>{filteredItems.length}</Text>
-            </View>
           </View>
+        </StylistSection>
+
+        {/* Portfolio Gallery */}
+        <StylistSection>
           {loading ? (
             <View style={styles.emptyState}>
               <ActivityIndicator size="large" color="#160B53" />
@@ -519,12 +559,12 @@ export default function StylistPortfolioScreen() {
                 <Ionicons name="images" size={48} color="#EC4899" />
               </View>
               <Text style={styles.emptyStateTitle}>
-                {selectedCategory === 'All' ? 'Start Your Portfolio!' : `No ${selectedCategory} Items Yet`}
+                {selectedStatus === 'all' ? 'Start Your Portfolio!' : `No ${selectedStatus} Items`}
               </Text>
               <Text style={styles.emptyStateText}>
-                {selectedCategory === 'All' 
+                {selectedStatus === 'all' 
                   ? 'Upload photos of your best work to showcase your skills and attract more clients.'
-                  : `No ${selectedCategory.toLowerCase()} items in your portfolio yet. Try uploading some ${selectedCategory.toLowerCase()} work!`}
+                  : `No ${selectedStatus} items found. Try changing your filter or upload new work!`}
               </Text>
               <TouchableOpacity 
                 style={styles.uploadPromptButton}
@@ -542,11 +582,6 @@ export default function StylistPortfolioScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            <ScrollView 
-              style={styles.portfolioListScroll}
-              showsVerticalScrollIndicator={true}
-              nestedScrollEnabled={true}
-            >
             <View style={styles.galleryGrid}>
               {filteredItems.map((item) => (
                 <View key={item.id} style={styles.galleryCard}>
@@ -556,6 +591,20 @@ export default function StylistPortfolioScreen() {
                     ) : (
                       <Ionicons name="image" size={50} color="#CCCCCC" />
                     )}
+                    {/* Status Badge */}
+                    <View style={[
+                      styles.statusBadge,
+                      item.status === 'approved' ? styles.statusBadgeApproved : styles.statusBadgePending
+                    ]}>
+                      <Ionicons 
+                        name={item.status === 'approved' ? 'checkmark-circle' : 'time'} 
+                        size={14} 
+                        color="#FFFFFF" 
+                      />
+                      <Text style={styles.statusBadgeText}>
+                        {item.status === 'approved' ? 'Approved' : 'Pending'}
+                      </Text>
+                    </View>
                   </View>
                   <View style={styles.galleryCardInfo}>
                     <Text style={styles.galleryCardTitle}>{item.title}</Text>
@@ -566,7 +615,6 @@ export default function StylistPortfolioScreen() {
                 </View>
               ))}
             </View>
-            </ScrollView>
           )}
         </StylistSection>
       </ScrollView>
@@ -958,6 +1006,99 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.medium,
     color: '#92400E',
     flex: 1,
+  },
+  // Search and Sort Styles
+  searchSortRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  searchBarContainer: {
+    flex: 1,
+  },
+  sortButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 0,
+  },
+  sortContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  sortButtonActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  sortDropdown: {
+    position: 'absolute',
+    top: 50,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    minWidth: 180,
+    zIndex: 1001,
+  },
+  sortDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  sortDropdownItemActive: {
+    backgroundColor: '#F9FAFB',
+  },
+  sortDropdownText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#6B7280',
+    fontFamily: 'Poppins_500Medium',
+  },
+  sortDropdownTextActive: {
+    color: '#160B53',
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  // Status Badge Styles
+  statusBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusBadgeApproved: {
+    backgroundColor: '#10B981',
+  },
+  statusBadgePending: {
+    backgroundColor: '#F59E0B',
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontFamily: FONTS.semiBold,
+    color: '#FFFFFF',
   },
   pendingOverlay: {
     position: 'absolute',

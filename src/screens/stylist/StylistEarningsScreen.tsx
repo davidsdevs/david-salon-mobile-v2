@@ -17,6 +17,7 @@ import ScreenWrapper from '../../components/ScreenWrapper';
 import {
   StylistSection,
   StylistPageTitle,
+  StylistSearchBar,
   StylistFilterTab,
   StylistCard,
   StylistPagination,
@@ -48,15 +49,18 @@ export default function StylistEarningsScreen() {
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selectedView, setSelectedView] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc' | 'type'>('date-desc');
+  const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
 
-  // Reset to page 1 when view changes
+  // Reset to page 1 when view, search, or sort changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedView]);
+  }, [selectedView, searchQuery, sortBy]);
   const [summary, setSummary] = useState<EarningsSummary>({
     serviceRevenue: 0,
     productCommission: 0,
@@ -223,13 +227,16 @@ export default function StylistEarningsScreen() {
     });
   }, [transactions, selectedView]);
 
-  // Filter transactions for display
+  // Filter and sort transactions for display
   const getFilteredTransactions = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    let filtered = transactions;
+
+    // Filter by time period
     if (selectedView === 'daily') {
-      return transactions.filter(txn => {
+      filtered = transactions.filter(txn => {
         const txnDate = new Date(txn.date);
         txnDate.setHours(0, 0, 0, 0);
         return txnDate.getTime() === today.getTime();
@@ -240,7 +247,7 @@ export default function StylistEarningsScreen() {
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekStart.getDate() + 6);
 
-      return transactions.filter(txn => {
+      filtered = transactions.filter(txn => {
         const txnDate = new Date(txn.date);
         return txnDate >= weekStart && txnDate <= weekEnd;
       });
@@ -248,13 +255,41 @@ export default function StylistEarningsScreen() {
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
       const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
-      return transactions.filter(txn => {
+      filtered = transactions.filter(txn => {
         const txnDate = new Date(txn.date);
         return txnDate >= monthStart && txnDate <= monthEnd;
       });
     }
 
-    return transactions;
+    // Filter by search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(txn => 
+        txn.clientName.toLowerCase().includes(query) ||
+        txn.description.toLowerCase().includes(query) ||
+        txn.type.toLowerCase().includes(query)
+      );
+    }
+
+    // Sort transactions
+    filtered = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case 'date-desc':
+          return new Date(b.date + ' ' + b.time).getTime() - new Date(a.date + ' ' + a.time).getTime();
+        case 'date-asc':
+          return new Date(a.date + ' ' + a.time).getTime() - new Date(b.date + ' ' + b.time).getTime();
+        case 'amount-desc':
+          return b.commission - a.commission;
+        case 'amount-asc':
+          return a.commission - b.commission;
+        case 'type':
+          return a.type.localeCompare(b.type);
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
   };
 
   const filteredTransactions = getFilteredTransactions();
@@ -291,24 +326,135 @@ export default function StylistEarningsScreen() {
   return (
     <ScreenWrapper title="My Earnings" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* View Filter */}
-        <StylistSection style={styles.filterSection}>
-          <View style={styles.filterRow}>
-            <StylistFilterTab
-              label="Daily"
-              isActive={selectedView === 'daily'}
-              onPress={() => setSelectedView('daily')}
-            />
-            <StylistFilterTab
-              label="Weekly"
-              isActive={selectedView === 'weekly'}
-              onPress={() => setSelectedView('weekly')}
-            />
-            <StylistFilterTab
-              label="Monthly"
-              isActive={selectedView === 'monthly'}
-              onPress={() => setSelectedView('monthly')}
-            />
+        {/* Search and Sort */}
+        <StylistSection>
+          <View style={styles.searchSortRow}>
+            <View style={styles.searchBarContainer}>
+              <StylistSearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search transactions..."
+              />
+            </View>
+            <View style={styles.sortButtons}>
+              {/* Sort Dropdown Button */}
+              <View style={styles.sortContainer}>
+                <TouchableOpacity 
+                  style={[styles.sortButton, sortDropdownVisible && styles.sortButtonActive]}
+                  onPress={() => setSortDropdownVisible(!sortDropdownVisible)}
+                >
+                  <Ionicons 
+                    name="swap-vertical" 
+                    size={18} 
+                    color={sortDropdownVisible ? '#FFFFFF' : '#6B7280'} 
+                  />
+                </TouchableOpacity>
+                {/* Sort Dropdown Menu */}
+                {sortDropdownVisible && (
+                  <View style={styles.sortDropdown}>
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'date-desc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('date-desc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="calendar-outline" 
+                        size={18} 
+                        color={sortBy === 'date-desc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'date-desc' && styles.sortDropdownTextActive]}>
+                        Date (Newest First)
+                      </Text>
+                      {sortBy === 'date-desc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'date-asc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('date-asc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="calendar-outline" 
+                        size={18} 
+                        color={sortBy === 'date-asc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'date-asc' && styles.sortDropdownTextActive]}>
+                        Date (Oldest First)
+                      </Text>
+                      {sortBy === 'date-asc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'amount-desc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('amount-desc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="cash-outline" 
+                        size={18} 
+                        color={sortBy === 'amount-desc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'amount-desc' && styles.sortDropdownTextActive]}>
+                        Amount (High to Low)
+                      </Text>
+                      {sortBy === 'amount-desc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'amount-asc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('amount-asc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="cash-outline" 
+                        size={18} 
+                        color={sortBy === 'amount-asc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'amount-asc' && styles.sortDropdownTextActive]}>
+                        Amount (Low to High)
+                      </Text>
+                      {sortBy === 'amount-asc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'type' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('type');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="pricetag-outline" 
+                        size={18} 
+                        color={sortBy === 'type' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'type' && styles.sortDropdownTextActive]}>
+                        Type
+                      </Text>
+                      {sortBy === 'type' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </View>
           </View>
         </StylistSection>
 
@@ -427,6 +573,76 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  // Search and Sort Styles
+  searchSortRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  searchBarContainer: {
+    flex: 1,
+  },
+  sortButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 0,
+  },
+  sortContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  sortButtonActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  sortDropdown: {
+    position: 'absolute',
+    top: 50,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    minWidth: 200,
+    zIndex: 1001,
+  },
+  sortDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  sortDropdownItemActive: {
+    backgroundColor: '#F9FAFB',
+  },
+  sortDropdownText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#6B7280',
+    fontFamily: 'Poppins_500Medium',
+  },
+  sortDropdownTextActive: {
+    color: '#160B53',
+    fontFamily: 'Poppins_600SemiBold',
   },
   filterSection: {
     marginTop: 0,

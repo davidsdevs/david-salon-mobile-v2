@@ -18,6 +18,7 @@ import ScreenWrapper from '../../components/ScreenWrapper';
 import {
   StylistSection,
   StylistPageTitle,
+  StylistSearchBar,
   StylistFilterTab,
   StylistBadge,
   StylistPagination,
@@ -45,17 +46,21 @@ export default function StylistScheduleScreen() {
   const [branches, setBranches] = useState<{ [key: string]: string }>({});
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [calendarDates, setCalendarDates] = useState<Date[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [sortBy, setSortBy] = useState<'time-asc' | 'time-desc' | 'client-asc' | 'client-desc' | 'status'>('time-asc');
+  const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
 
-  // Reset to page 1 when date or branch changes
+  // Reset to page 1 when date, branch, search, or sort changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedDate, selectedBranch]);
+  }, [selectedDate, selectedBranch, searchQuery, sortBy]);
 
   // Scroll to top when screen is focused
   useFocusEffect(
@@ -220,14 +225,62 @@ export default function StylistScheduleScreen() {
     });
   };
 
-  // Get appointments for selected date
-  const selectedDateAppointments = getAppointmentsForDate(selectedDate);
+  // Filter and sort appointments
+  const filteredAppointments = appointments.filter(apt => {
+    // Filter by branch
+    if (selectedBranch !== 'all' && apt.branchId !== selectedBranch) {
+      return false;
+    }
+    
+    // Filter by selected date
+    if (selectedDate) {
+      const dateString = selectedDate.toISOString().split('T')[0];
+      if (apt.date !== dateString) {
+        return false;
+      }
+    }
+    
+    // Filter by search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      return apt.clientName.toLowerCase().includes(query) ||
+             apt.serviceName.toLowerCase().includes(query) ||
+             apt.branchName.toLowerCase().includes(query);
+    }
+    
+    return true;
+  }).sort((a, b) => {
+    switch (sortBy) {
+      case 'time-asc':
+        return a.time.localeCompare(b.time);
+      case 'time-desc':
+        return b.time.localeCompare(a.time);
+      case 'client-asc':
+        return a.clientName.localeCompare(b.clientName);
+      case 'client-desc':
+        return b.clientName.localeCompare(a.clientName);
+      case 'status':
+        const statusOrder: Record<string, number> = {
+          'confirmed': 1,
+          'scheduled': 2,
+          'in_service': 3,
+          'completed': 4,
+          'cancelled': 5,
+        };
+        return (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
+      default:
+        return 0;
+    }
+  });
+
+  // Get appointments for display (either filtered by date or all filtered)
+  const displayAppointments = selectedDate ? getAppointmentsForDate(selectedDate) : filteredAppointments;
 
   // Pagination calculations
-  const totalPages = Math.ceil(selectedDateAppointments.length / itemsPerPage);
+  const totalPages = Math.ceil(displayAppointments.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const paginatedAppointments = selectedDateAppointments.slice(startIndex, endIndex);
+  const paginatedAppointments = displayAppointments.slice(startIndex, endIndex);
 
   const handleNextPage = () => {
     if (currentPage < totalPages) {
@@ -273,6 +326,7 @@ export default function StylistScheduleScreen() {
 
   // Check if date is selected
   const isSelected = (date: Date) => {
+    if (!selectedDate) return false;
     return date.getDate() === selectedDate.getDate() &&
            date.getMonth() === selectedDate.getMonth() &&
            date.getFullYear() === selectedDate.getFullYear();
@@ -284,6 +338,9 @@ export default function StylistScheduleScreen() {
   };
 
   const formatSelectedDate = () => {
+    if (!selectedDate) {
+      return 'All Appointments';
+    }
     if (isToday(selectedDate)) {
       return 'Today';
     }
@@ -308,26 +365,6 @@ export default function StylistScheduleScreen() {
   return (
     <ScreenWrapper title="My Schedule" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Month Navigation */}
-        <StylistSection style={styles.monthSection}>
-          <View style={styles.monthHeader}>
-            <TouchableOpacity onPress={goToPreviousMonth} style={styles.monthNavButton}>
-              <Ionicons name="chevron-back" size={24} color="#160B53" />
-            </TouchableOpacity>
-            <View style={styles.monthTitleContainer}>
-              <Text style={styles.monthTitle}>
-                {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-              </Text>
-              <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
-                <Text style={styles.todayButtonText}>Today</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity onPress={goToNextMonth} style={styles.monthNavButton}>
-              <Ionicons name="chevron-forward" size={24} color="#160B53" />
-            </TouchableOpacity>
-          </View>
-        </StylistSection>
-
         {/* Branch Filter */}
         <StylistSection style={styles.branchFilterSection}>
           <ScrollView 
@@ -355,63 +392,233 @@ export default function StylistScheduleScreen() {
           </ScrollView>
         </StylistSection>
 
-        {/* Calendar Grid */}
-        <StylistSection style={styles.calendarSection}>
-          <View style={styles.calendarContainer}>
-            {/* Week Day Headers */}
-            <View style={styles.weekDaysRow}>
-              {weekDays.map((day) => (
-                <View key={day} style={styles.weekDayCell}>
-                  <Text style={styles.weekDayText}>{day}</Text>
-                </View>
-              ))}
+        {/* Search and Sort */}
+        <StylistSection>
+          <View style={styles.searchSortRow}>
+            <View style={styles.searchBarContainer}>
+              <StylistSearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search by name..."
+              />
             </View>
+            <View style={styles.sortButtons}>
+              {/* Calendar Toggle Button */}
+              <TouchableOpacity
+                style={[
+                  styles.sortButton, 
+                  (showCalendar || selectedDate) && styles.sortButtonActive
+                ]}
+                onPress={() => setShowCalendar(!showCalendar)}
+              >
+                <Ionicons 
+                  name={selectedDate ? "calendar" : "calendar-outline"} 
+                  size={18} 
+                  color={(showCalendar || selectedDate) ? '#FFFFFF' : '#6B7280'} 
+                />
+                {selectedDate && !showCalendar && (
+                  <View style={styles.dateIndicatorDot} />
+                )}
+              </TouchableOpacity>
+              
+              {/* Sort Dropdown Button */}
+              <View style={styles.sortContainer}>
+                <TouchableOpacity 
+                  style={[styles.sortButton, sortDropdownVisible && styles.sortButtonActive]}
+                  onPress={() => setSortDropdownVisible(!sortDropdownVisible)}
+                >
+                  <Ionicons 
+                    name="swap-vertical" 
+                    size={18} 
+                    color={sortDropdownVisible ? '#FFFFFF' : '#6B7280'} 
+                  />
+                </TouchableOpacity>
+                {/* Sort Dropdown Menu */}
+                {sortDropdownVisible && (
+                  <View style={styles.sortDropdown}>
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'time-asc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('time-asc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="time-outline" 
+                        size={18} 
+                        color={sortBy === 'time-asc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'time-asc' && styles.sortDropdownTextActive]}>
+                        Time (Earliest First)
+                      </Text>
+                      {sortBy === 'time-asc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
 
-            {/* Calendar Dates */}
-            <View style={styles.calendarGrid}>
-              {calendarDates.map((date, index) => {
-                const dateHasAppointments = hasAppointments(date);
-                const dateIsToday = isToday(date);
-                const dateIsSelected = isSelected(date);
-                const dateIsCurrentMonth = isCurrentMonth(date);
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'time-desc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('time-desc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="time-outline" 
+                        size={18} 
+                        color={sortBy === 'time-desc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'time-desc' && styles.sortDropdownTextActive]}>
+                        Time (Latest First)
+                      </Text>
+                      {sortBy === 'time-desc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
 
-                return (
-                  <TouchableOpacity
-                    key={index}
-                    style={[
-                      styles.dateCell,
-                      dateIsToday && styles.dateCellToday,
-                      dateIsSelected && styles.dateCellSelected,
-                    ]}
-                    onPress={() => setSelectedDate(date)}
-                  >
-                    <Text style={[
-                      styles.dateText,
-                      !dateIsCurrentMonth && styles.dateTextOtherMonth,
-                      dateIsToday && styles.dateTextToday,
-                      dateIsSelected && styles.dateTextSelected,
-                    ]}>
-                      {date.getDate()}
-                    </Text>
-                    {dateHasAppointments && (
-                      <View style={[
-                        styles.appointmentDot,
-                        dateIsSelected && styles.appointmentDotSelected
-                      ]} />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'client-asc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('client-asc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="person-outline" 
+                        size={18} 
+                        color={sortBy === 'client-asc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'client-asc' && styles.sortDropdownTextActive]}>
+                        Client Name (A-Z)
+                      </Text>
+                      {sortBy === 'client-asc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'client-desc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('client-desc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="person-outline" 
+                        size={18} 
+                        color={sortBy === 'client-desc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'client-desc' && styles.sortDropdownTextActive]}>
+                        Client Name (Z-A)
+                      </Text>
+                      {sortBy === 'client-desc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'status' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('status');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="flag-outline" 
+                        size={18} 
+                        color={sortBy === 'status' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'status' && styles.sortDropdownTextActive]}>
+                        Status
+                      </Text>
+                      {sortBy === 'status' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
         </StylistSection>
 
-        {/* Selected Date Appointments */}
+        {/* Calendar Grid (Collapsible) */}
+        {showCalendar && (
+          <StylistSection style={styles.calendarSection}>
+            <View style={styles.calendarContainer}>
+              {/* Month Navigation */}
+              <View style={styles.monthHeader}>
+                <TouchableOpacity onPress={goToPreviousMonth} style={styles.monthNavButton}>
+                  <Ionicons name="chevron-back" size={24} color="#160B53" />
+                </TouchableOpacity>
+                <View style={styles.monthTitleContainer}>
+                  <Text style={styles.monthTitle}>
+                    {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </Text>
+                  <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
+                    <Text style={styles.todayButtonText}>Today</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity onPress={goToNextMonth} style={styles.monthNavButton}>
+                  <Ionicons name="chevron-forward" size={24} color="#160B53" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Week Day Headers */}
+              <View style={styles.weekDaysRow}>
+                {weekDays.map((day) => (
+                  <View key={day} style={styles.weekDayCell}>
+                    <Text style={styles.weekDayText}>{day}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Calendar Dates */}
+              <View style={styles.calendarGrid}>
+                {calendarDates.map((date, index) => {
+                  const dateHasAppointments = hasAppointments(date);
+                  const dateIsToday = isToday(date);
+                  const dateIsSelected = isSelected(date);
+                  const dateIsCurrentMonth = isCurrentMonth(date);
+
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.dateCell,
+                        dateIsToday && styles.dateCellToday,
+                        dateIsSelected && styles.dateCellSelected,
+                      ]}
+                      onPress={() => setSelectedDate(date)}
+                    >
+                      <Text style={[
+                        styles.dateText,
+                        !dateIsCurrentMonth && styles.dateTextOtherMonth,
+                        dateIsToday && styles.dateTextToday,
+                        dateIsSelected && styles.dateTextSelected,
+                      ]}>
+                        {date.getDate()}
+                      </Text>
+                      {dateHasAppointments && (
+                        <View style={[
+                          styles.appointmentDot,
+                          dateIsSelected && styles.appointmentDotSelected
+                        ]} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          </StylistSection>
+        )}
+
+        {/* Appointments List */}
         <StylistSection>
           <View style={styles.listHeader}>
             <Text style={styles.listTitle}>{formatSelectedDate()}</Text>
             <View style={styles.countBadge}>
-              <Text style={styles.countText}>{selectedDateAppointments.length}</Text>
+              <Text style={styles.countText}>{displayAppointments.length}</Text>
             </View>
           </View>
           
@@ -420,7 +627,7 @@ export default function StylistScheduleScreen() {
               <ActivityIndicator size="large" color="#160B53" />
               <Text style={styles.emptyStateText}>Loading schedule...</Text>
             </View>
-          ) : selectedDateAppointments.length === 0 ? (
+          ) : displayAppointments.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyIconContainer}>
                 <Ionicons name="calendar-clear" size={48} color="#10B981" />
@@ -489,7 +696,7 @@ export default function StylistScheduleScreen() {
             <StylistPagination
               currentPage={currentPage}
               totalPages={totalPages}
-              totalItems={selectedDateAppointments.length}
+              totalItems={displayAppointments.length}
               itemsPerPage={itemsPerPage}
               onNextPage={handleNextPage}
               onPrevPage={handlePrevPage}
@@ -776,6 +983,85 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     fontFamily: FONTS.medium,
+  },
+  // Search and Sort Styles
+  searchSortRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  searchBarContainer: {
+    flex: 1,
+  },
+  sortButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 0,
+  },
+  sortContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  sortButtonActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  dateIndicatorDot: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+  },
+  sortDropdown: {
+    position: 'absolute',
+    top: 50,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    minWidth: 200,
+    zIndex: 1001,
+  },
+  sortDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  sortDropdownItemActive: {
+    backgroundColor: '#F9FAFB',
+  },
+  sortDropdownText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#6B7280',
+    fontFamily: 'Poppins_500Medium',
+  },
+  sortDropdownTextActive: {
+    color: '#160B53',
+    fontFamily: 'Poppins_600SemiBold',
   },
   // List Header (consistent with other pages)
   listHeader: {

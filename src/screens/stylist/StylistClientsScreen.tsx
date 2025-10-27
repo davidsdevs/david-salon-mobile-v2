@@ -31,6 +31,7 @@ const { width } = Dimensions.get('window');
 export default function StylistClientsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All Clients');
+  const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
   const navigation = useNavigation();
   const scrollViewRef = useRef<ScrollView>(null);
   const { user } = useAuth();
@@ -361,58 +362,116 @@ export default function StylistClientsScreen() {
   return (
     <ScreenWrapper title="Clients" userType="stylist" showBackButton={true}>
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Filter Tabs with Counts */}
-        <StylistSection style={styles.filterSection}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.filterTabs}>
-              {filterOptions.map((filter) => {
-                const count = filter === 'All Clients' ? stats.total :
-                             filter === 'X - New Client' ? stats.newClients :
-                             filter === 'R - Regular' ? stats.regular :
-                             filter === 'TR - Transfer' ? stats.transfer : 0;
-                
-                return (
-                  <TouchableOpacity
-                    key={filter}
-                    style={[
-                      styles.quickFilterChip,
-                      selectedFilter === filter && styles.quickFilterChipActive
-                    ]}
-                    onPress={() => setSelectedFilter(filter)}
-                  >
-                    <Text style={[
-                      styles.quickFilterText,
-                      selectedFilter === filter && styles.quickFilterTextActive
-                    ]}>
-                      {filter}
-                    </Text>
-                    {count > 0 && (
-                      <View style={[
-                        styles.quickFilterBadge,
-                        selectedFilter === filter && styles.quickFilterBadgeActive
-                      ]}>
-                        <Text style={[
-                          styles.quickFilterBadgeText,
-                          selectedFilter === filter && styles.quickFilterBadgeTextActive
-                        ]}>
-                          {count}
-                        </Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
+        {/* Search and Sort */}
+        <StylistSection>
+          <View style={styles.searchSortRow}>
+            <View style={styles.searchBarContainer}>
+              <StylistSearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search by name..."
+              />
             </View>
-          </ScrollView>
-        </StylistSection>
+            <View style={styles.sortButtons}>
+              {/* Sort Dropdown Button */}
+              <View style={styles.sortContainer}>
+                <TouchableOpacity 
+                  style={[styles.sortButton, sortDropdownVisible && styles.sortButtonActive]}
+                  onPress={() => setSortDropdownVisible(!sortDropdownVisible)}
+                >
+                  <Ionicons 
+                    name="swap-vertical" 
+                    size={18} 
+                    color={sortDropdownVisible ? '#FFFFFF' : '#6B7280'} 
+                  />
+                </TouchableOpacity>
+                {/* Sort Dropdown Menu */}
+                {sortDropdownVisible && (
+                  <View style={styles.sortDropdown}>
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, selectedFilter === 'All Clients' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSelectedFilter('All Clients');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="people-outline" 
+                        size={18} 
+                        color={selectedFilter === 'All Clients' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, selectedFilter === 'All Clients' && styles.sortDropdownTextActive]}>
+                        All Clients ({stats.total})
+                      </Text>
+                      {selectedFilter === 'All Clients' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
 
-        {/* Search */}
-        <StylistSection style={styles.searchSection}>
-          <StylistSearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search by name..."
-          />
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, selectedFilter === 'X - New Client' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSelectedFilter('X - New Client');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="person-add-outline" 
+                        size={18} 
+                        color={selectedFilter === 'X - New Client' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, selectedFilter === 'X - New Client' && styles.sortDropdownTextActive]}>
+                        New Client ({stats.newClients})
+                      </Text>
+                      {selectedFilter === 'X - New Client' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, selectedFilter === 'R - Regular' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSelectedFilter('R - Regular');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="star-outline" 
+                        size={18} 
+                        color={selectedFilter === 'R - Regular' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, selectedFilter === 'R - Regular' && styles.sortDropdownTextActive]}>
+                        Regular ({stats.regular})
+                      </Text>
+                      {selectedFilter === 'R - Regular' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, selectedFilter === 'TR - Transfer' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSelectedFilter('TR - Transfer');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="swap-horizontal-outline" 
+                        size={18} 
+                        color={selectedFilter === 'TR - Transfer' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, selectedFilter === 'TR - Transfer' && styles.sortDropdownTextActive]}>
+                        Transfer ({stats.transfer})
+                      </Text>
+                      {selectedFilter === 'TR - Transfer' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </View>
+          </View>
         </StylistSection>
           
         {/* Clients List */}
@@ -742,6 +801,76 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.regular,
     color: '#6B7280',
     textAlign: 'center',
+  },
+  // Search and Sort Styles
+  searchSortRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  searchBarContainer: {
+    flex: 1,
+  },
+  sortButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 0,
+  },
+  sortContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  sortButtonActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  sortDropdown: {
+    position: 'absolute',
+    top: 50,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    minWidth: 180,
+    zIndex: 1001,
+  },
+  sortDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  sortDropdownItemActive: {
+    backgroundColor: '#F9FAFB',
+  },
+  sortDropdownText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#6B7280',
+    fontFamily: 'Poppins_500Medium',
+  },
+  sortDropdownTextActive: {
+    color: '#160B53',
+    fontFamily: 'Poppins_600SemiBold',
   },
   // List Header (consistent with other pages)
   listHeader: {

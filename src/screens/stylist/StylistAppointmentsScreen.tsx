@@ -51,13 +51,12 @@ export default function StylistAppointmentsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [sortBy, setSortBy] = useState<'time' | 'client'>('time');
+  const [sortBy, setSortBy] = useState<'time-asc' | 'time-desc' | 'client-asc' | 'client-desc' | 'status'>('time-asc');
   const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null); // null = no date filter
   const [showCalendar, setShowCalendar] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarDates, setCalendarDates] = useState<Date[]>([]);
-  const [showMoreFilters, setShowMoreFilters] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -68,8 +67,7 @@ export default function StylistAppointmentsScreen() {
     setCurrentPage(1);
   }, [selectedFilter, searchQuery, selectedDate]);
 
-  const mainFilterOptions = ['Today', 'Upcoming', 'All'];
-  const moreFilterOptions = ['Confirmed', 'Completed', 'Cancelled'];
+  const filterOptions = ['Today', 'Upcoming', 'Confirmed', 'Completed', 'Cancelled'];
 
   // Generate calendar dates for the current month
   useEffect(() => {
@@ -236,8 +234,8 @@ export default function StylistAppointmentsScreen() {
     
     // Sort appointments based on selected sort option
     switch (sortBy) {
-      case 'time':
-        // Sort by appointment date first, then time
+      case 'time-asc':
+        // Sort by appointment date first, then time (earliest first)
         const dateA = new Date(aptA.appointmentDate || aptA.date).getTime();
         const dateB = new Date(aptB.appointmentDate || aptB.date).getTime();
         if (dateA !== dateB) {
@@ -247,11 +245,50 @@ export default function StylistAppointmentsScreen() {
         const timeA = aptA.appointmentTime || aptA.startTime || '';
         const timeB = aptB.appointmentTime || aptB.startTime || '';
         return timeA.localeCompare(timeB);
-      case 'client':
-        // Sort by client name
-        const clientA = (aptA.clientName || `${aptA.clientFirstName || ''} ${aptA.clientLastName || ''}`.trim() || '').toLowerCase();
-        const clientB = (aptB.clientName || `${aptB.clientFirstName || ''} ${aptB.clientLastName || ''}`.trim() || '').toLowerCase();
-        return clientA.localeCompare(clientB);
+      case 'time-desc':
+        // Sort by appointment date first, then time (latest first)
+        const dateA2 = new Date(aptA.appointmentDate || aptA.date).getTime();
+        const dateB2 = new Date(aptB.appointmentDate || aptB.date).getTime();
+        if (dateA2 !== dateB2) {
+          return dateB2 - dateA2; // Later dates first
+        }
+        // If same date, sort by time (descending)
+        const timeA2 = aptA.appointmentTime || aptA.startTime || '';
+        const timeB2 = aptB.appointmentTime || aptB.startTime || '';
+        return timeB2.localeCompare(timeA2);
+      case 'client-asc':
+        // Sort by client name (A-Z)
+        const clientNameA = aptA.clientName || 
+                          `${aptA.clientFirstName || ''} ${aptA.clientLastName || ''}`.trim() ||
+                          'Unknown';
+        const clientNameB = aptB.clientName || 
+                          `${aptB.clientFirstName || ''} ${aptB.clientLastName || ''}`.trim() ||
+                          'Unknown';
+        return clientNameA.localeCompare(clientNameB);
+      case 'client-desc':
+        // Sort by client name (Z-A)
+        const clientNameA2 = aptA.clientName || 
+                          `${aptA.clientFirstName || ''} ${aptA.clientLastName || ''}`.trim() ||
+                          'Unknown';
+        const clientNameB2 = aptB.clientName || 
+                          `${aptB.clientFirstName || ''} ${aptB.clientLastName || ''}`.trim() ||
+                          'Unknown';
+        return clientNameB2.localeCompare(clientNameA2);
+      case 'status':
+        // Sort by status (confirmed > scheduled > pending > completed > cancelled)
+        const statusOrder: Record<string, number> = {
+          'confirmed': 1,
+          'scheduled': 2,
+          'pending': 3,
+          'in-service': 4,
+          'in_service': 4,
+          'in_progress': 4,
+          'completed': 5,
+          'cancelled': 6,
+        };
+        const statusA = (aptA.status || '').toLowerCase();
+        const statusB = (aptB.status || '').toLowerCase();
+        return (statusOrder[statusA] || 99) - (statusOrder[statusB] || 99);
       default:
         return 0;
     }
@@ -449,15 +486,12 @@ export default function StylistAppointmentsScreen() {
     <ScreenWrapper title="Appointments" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Quick Filters */}
-        <StylistSection>
+        <StylistSection style={styles.filterSection}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.filterTabs}>
-              {/* Main Filters */}
-              {mainFilterOptions.map((filter: string) => {
-                // Count appointments using the SAME logic as the main filter
+            <View style={styles.quickFilters}>
+              {filterOptions.map((filter: string) => {
                 const count = appointments.filter(apt => {
-                  const aptAny = apt as any;
-                  const appointmentDate = new Date(aptAny.appointmentDate || aptAny.date);
+                  const appointmentDate = new Date(apt.appointmentDate || apt.date);
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
                   const tomorrow = new Date(today);
@@ -474,9 +508,9 @@ export default function StylistAppointmentsScreen() {
                     return appointmentDate >= tomorrow && 
                            (status === 'scheduled' || status === 'confirmed' || status === 'pending');
                   }
-                  if (filter === 'All') {
-                    return status !== 'cancelled';
-                  }
+                  if (filter === 'Confirmed') return status === 'confirmed';
+                  if (filter === 'Completed') return status === 'completed';
+                  if (filter === 'Cancelled') return status === 'cancelled';
                   return false;
                 }).length;
 
@@ -511,70 +545,8 @@ export default function StylistAppointmentsScreen() {
                   </TouchableOpacity>
                 );
               })}
-              
-              {/* More Filters Dropdown */}
-              <TouchableOpacity
-                style={[
-                  styles.quickFilterChip,
-                  moreFilterOptions.includes(selectedFilter) && styles.quickFilterChipActive
-                ]}
-                onPress={() => setShowMoreFilters(!showMoreFilters)}
-              >
-                <Text style={[
-                  styles.quickFilterText,
-                  moreFilterOptions.includes(selectedFilter) && styles.quickFilterTextActive
-                ]}>
-                  More
-                </Text>
-                <Ionicons 
-                  name={showMoreFilters ? "chevron-up" : "chevron-down"} 
-                  size={16} 
-                  color={moreFilterOptions.includes(selectedFilter) ? '#FFFFFF' : '#374151'} 
-                />
-              </TouchableOpacity>
             </View>
           </ScrollView>
-          
-          {/* More Filters Dropdown Content */}
-          {showMoreFilters && (
-            <View style={styles.moreFiltersDropdown}>
-              {moreFilterOptions.map((filter: string) => {
-                const count = appointments.filter(apt => {
-                  const status = (apt.status || '').toLowerCase();
-                  if (filter === 'Confirmed') return status === 'confirmed';
-                  if (filter === 'Completed') return status === 'completed';
-                  if (filter === 'Cancelled') return status === 'cancelled';
-                  return false;
-                }).length;
-
-                return (
-                  <TouchableOpacity
-                    key={filter}
-                    style={[
-                      styles.moreFilterItem,
-                      selectedFilter === filter && styles.moreFilterItemActive
-                    ]}
-                    onPress={() => {
-                      setSelectedFilter(filter);
-                      setShowMoreFilters(false);
-                    }}
-                  >
-                    <Text style={[
-                      styles.moreFilterText,
-                      selectedFilter === filter && styles.moreFilterTextActive
-                    ]}>
-                      {filter}
-                    </Text>
-                    {count > 0 && (
-                      <View style={styles.moreFilterBadge}>
-                        <Text style={styles.moreFilterBadgeText}>{count}</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
         </StylistSection>
 
         {/* Search and Sort */}
@@ -604,18 +576,123 @@ export default function StylistAppointmentsScreen() {
                   <View style={styles.dateIndicatorDot} />
                 )}
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.sortButton, sortBy === 'time' && styles.sortButtonActive]}
-                onPress={() => setSortBy('time')}
-              >
-                <Ionicons name="time" size={18} color={sortBy === 'time' ? '#FFFFFF' : '#6B7280'} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.sortButton, sortBy === 'client' && styles.sortButtonActive]}
-                onPress={() => setSortBy('client')}
-              >
-                <Ionicons name="person" size={18} color={sortBy === 'client' ? '#FFFFFF' : '#6B7280'} />
-              </TouchableOpacity>
+              {/* Sort Dropdown Button */}
+              <View style={styles.sortContainer}>
+                <TouchableOpacity 
+                  style={[styles.sortButton, sortDropdownVisible && styles.sortButtonActive]}
+                  onPress={() => setSortDropdownVisible(!sortDropdownVisible)}
+                >
+                  <Ionicons 
+                    name="swap-vertical" 
+                    size={18} 
+                    color={sortDropdownVisible ? '#FFFFFF' : '#6B7280'} 
+                  />
+                </TouchableOpacity>
+                {/* Sort Dropdown Menu */}
+                {sortDropdownVisible && (
+                  <View style={styles.sortDropdown}>
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'time-asc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('time-asc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="time-outline" 
+                        size={18} 
+                        color={sortBy === 'time-asc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'time-asc' && styles.sortDropdownTextActive]}>
+                        Time (Earliest First)
+                      </Text>
+                      {sortBy === 'time-asc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'time-desc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('time-desc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="time-outline" 
+                        size={18} 
+                        color={sortBy === 'time-desc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'time-desc' && styles.sortDropdownTextActive]}>
+                        Time (Latest First)
+                      </Text>
+                      {sortBy === 'time-desc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'client-asc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('client-asc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="person-outline" 
+                        size={18} 
+                        color={sortBy === 'client-asc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'client-asc' && styles.sortDropdownTextActive]}>
+                        Client Name (A-Z)
+                      </Text>
+                      {sortBy === 'client-asc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'client-desc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('client-desc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="person-outline" 
+                        size={18} 
+                        color={sortBy === 'client-desc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'client-desc' && styles.sortDropdownTextActive]}>
+                        Client Name (Z-A)
+                      </Text>
+                      {sortBy === 'client-desc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'status' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('status');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="flag-outline" 
+                        size={18} 
+                        color={sortBy === 'status' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'status' && styles.sortDropdownTextActive]}>
+                        Status
+                      </Text>
+                      {sortBy === 'status' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
         </StylistSection>
@@ -1150,6 +1227,11 @@ const styles = StyleSheet.create({
   filterSection: {
     marginTop: 0,
     marginBottom: 8,
+  },
+  quickFilters: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 16,
   },
   searchSection: {
     marginTop: 0,
@@ -2129,6 +2211,19 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.regular,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  countBadge: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  countText: {
+    fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
+    color: '#160B53',
+    fontFamily: 'Poppins_600SemiBold',
   },
   errorContainer: {
     padding: 20,
