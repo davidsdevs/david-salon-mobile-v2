@@ -5,21 +5,33 @@ import Constants from 'expo-constants';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../config/firebase';
 
+// Check if running in Expo Go
+const isExpoGo = Constants.appOwnership === 'expo';
+
 // Configure how notifications are handled when app is in foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Only set handler if not in Expo Go
+if (!isExpoGo) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 /**
  * Register for push notifications and get Expo Push Token
  */
 export async function registerForPushNotificationsAsync(): Promise<string | undefined> {
+  // Skip notification registration in Expo Go
+  if (isExpoGo) {
+    console.log('⚠️ Push notifications are not available in Expo Go (SDK 53+). Use a development build instead.');
+    return undefined;
+  }
+
   let token;
 
   if (Platform.OS === 'android') {
@@ -122,6 +134,12 @@ export function setupNotificationListeners(
   onNotificationReceived?: (notification: Notifications.Notification) => void,
   onNotificationTapped?: (response: Notifications.NotificationResponse) => void
 ) {
+  // Skip listeners in Expo Go
+  if (isExpoGo) {
+    console.log('⚠️ Notification listeners are not available in Expo Go (SDK 53+).');
+    return () => {}; // Return empty cleanup function
+  }
+
   // Listener for when notification is received while app is in foreground
   const notificationListener = Notifications.addNotificationReceivedListener(notification => {
     console.log('🔔 Notification received:', notification);

@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Platform,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -36,6 +37,8 @@ export default function NotificationsScreen() {
   const navigation = useNavigation();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [displayCount, setDisplayCount] = useState(10);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Fetch notifications from Firebase with real-time updates
   useEffect(() => {
@@ -162,6 +165,21 @@ export default function NotificationsScreen() {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  // Displayed notifications for infinite scroll
+  const displayedNotifications = notifications.slice(0, displayCount);
+  const hasMore = displayCount < notifications.length;
+
+  // Load more handler
+  const handleLoadMore = () => {
+    if (hasMore && !loadingMore) {
+      setLoadingMore(true);
+      setTimeout(() => {
+        setDisplayCount(prev => prev + 10);
+        setLoadingMore(false);
+      }, 500);
+    }
+  };
+
   // For web, render without ScreenWrapper to avoid duplicate headers
   if (Platform.OS === 'web') {
     return (
@@ -184,7 +202,7 @@ export default function NotificationsScreen() {
         {/* Notifications List */}
         <View style={styles.section}>
           <View style={styles.notificationsContainer}>
-            {notifications.map((notification) => (
+            {displayedNotifications.map((notification) => (
               <TouchableOpacity
                 key={notification.id}
                 style={[
@@ -229,7 +247,30 @@ export default function NotificationsScreen() {
                 </View>
               </TouchableOpacity>
             ))}
+            
+            {/* Load More / Loading Indicator */}
+            {hasMore && (
+              <View style={styles.loadMoreContainer}>
+                {loadingMore ? (
+                  <ActivityIndicator size="small" color="#160B53" />
+                ) : (
+                  <TouchableOpacity onPress={handleLoadMore} style={styles.loadMoreButton}>
+                    <Text style={styles.loadMoreText}>Load More</Text>
+                    <Ionicons name="chevron-down" size={16} color="#160B53" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </View>
+          
+          {/* Showing count */}
+          {notifications.length > 0 && (
+            <View style={styles.showingCountContainer}>
+              <Text style={styles.showingCountText}>
+                Showing {displayedNotifications.length} of {notifications.length} notifications
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     );
@@ -257,7 +298,7 @@ export default function NotificationsScreen() {
         {/* Notifications List */}
         <View style={styles.section}>
           <View style={styles.notificationsContainer}>
-            {notifications.map((notification) => (
+            {displayedNotifications.map((notification) => (
               <TouchableOpacity
                 key={notification.id}
                 style={[
@@ -302,7 +343,30 @@ export default function NotificationsScreen() {
                 </View>
               </TouchableOpacity>
             ))}
+            
+            {/* Load More / Loading Indicator */}
+            {hasMore && (
+              <View style={styles.loadMoreContainer}>
+                {loadingMore ? (
+                  <ActivityIndicator size="small" color="#160B53" />
+                ) : (
+                  <TouchableOpacity onPress={handleLoadMore} style={styles.loadMoreButton}>
+                    <Text style={styles.loadMoreText}>Load More</Text>
+                    <Ionicons name="chevron-down" size={16} color="#160B53" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </View>
+          
+          {/* Showing count */}
+          {notifications.length > 0 && (
+            <View style={styles.showingCountContainer}>
+              <Text style={styles.showingCountText}>
+                Showing {displayedNotifications.length} of {notifications.length} notifications
+              </Text>
+            </View>
+          )}
         </View>
       </ScrollView>
     </ScreenWrapper>
@@ -431,5 +495,37 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: Platform.OS === 'android' ? 8 : Platform.OS === 'ios' ? 9 : 10,
     fontFamily: FONTS.semiBold,
+  },
+  // Load More Styles
+  loadMoreContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    marginTop: 12,
+  },
+  loadMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  loadMoreText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  showingCountContainer: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  showingCountText: {
+    fontSize: 12,
+    fontFamily: FONTS.regular,
+    color: '#9CA3AF',
   },
 });

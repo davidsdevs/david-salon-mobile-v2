@@ -23,7 +23,6 @@ import {
   StylistSection,
   StylistPageTitle,
   StylistBadge,
-  StylistPagination,
 } from '../../components/stylist';
 import { APP_CONFIG, FONTS } from '../../constants';
 
@@ -48,10 +47,10 @@ export default function StylistNotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'unread' | 'read'>('all');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
   const [isDeleting, setIsDeleting] = useState(false);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [displayCount, setDisplayCount] = useState(10);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Scroll to top when screen is focused
   useFocusEffect(
@@ -334,36 +333,33 @@ export default function StylistNotificationsScreen() {
     });
   }, [notifications, selectedFilter]);
 
-  // Memoize pagination
-  const { totalPages, startIndex, endIndex, paginatedNotifications } = useMemo(() => {
-    const totalPages = Math.ceil(filteredNotifications.length / itemsPerPage);
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const paginatedNotifications = filteredNotifications.slice(startIndex, endIndex);
-    return { totalPages, startIndex, endIndex, paginatedNotifications };
-  }, [filteredNotifications, currentPage, itemsPerPage]);
+  // Memoize displayed notifications (for infinite scroll)
+  const displayedNotifications = useMemo(() => {
+    return filteredNotifications.slice(0, displayCount);
+  }, [filteredNotifications, displayCount]);
 
-  // Reset to page 1 when filter changes
+  const hasMore = displayCount < filteredNotifications.length;
+
+  // Reset display count when filter changes
   useEffect(() => {
-    setCurrentPage(1);
+    setDisplayCount(10);
   }, [selectedFilter]);
 
-  // Pagination handlers
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    }
-  };
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
+  // Load more handler
+  const handleLoadMore = () => {
+    if (hasMore && !loadingMore) {
+      setLoadingMore(true);
+      // Simulate loading delay for better UX
+      setTimeout(() => {
+        setDisplayCount(prev => prev + 10);
+        setLoadingMore(false);
+      }, 500);
     }
   };
 
   // Memoize grouped notifications
   const { groupedNotifications, sortedGroups } = useMemo(() => {
-    const groupedNotifications = paginatedNotifications.reduce((groups: any, notification) => {
+    const groupedNotifications = displayedNotifications.reduce((groups: any, notification) => {
       const date = notification.createdAt?.toDate();
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -395,7 +391,7 @@ export default function StylistNotificationsScreen() {
     const sortedGroups = groupOrder.filter(key => groupedNotifications[key]);
     
     return { groupedNotifications, sortedGroups };
-  }, [paginatedNotifications]);
+  }, [displayedNotifications]);
 
   // For web, render without ScreenWrapper to avoid duplicate headers
   if (Platform.OS === 'web') {
@@ -717,38 +713,53 @@ export default function StylistNotificationsScreen() {
               </Text>
             </View>
           ) : (
-            <FlatList
-              ref={flatListRef}
-              data={flatListData}
-              keyExtractor={(item, index) => 
-                item.type === 'header' ? `header-${item.groupKey}` : `item-${item.notification?.id}-${index}`
-              }
-              renderItem={({ item }) => {
-                if (item.type === 'header') {
-                  return renderGroupHeader(item.groupKey!);
+            <>
+              <FlatList
+                ref={flatListRef}
+                data={flatListData}
+                keyExtractor={(item, index) => 
+                  item.type === 'header' ? `header-${item.groupKey}` : `item-${item.notification?.id}-${index}`
                 }
-                return renderNotificationItem({ item: item.notification! });
-              }}
-              showsVerticalScrollIndicator={false}
-              removeClippedSubviews={true}
-              maxToRenderPerBatch={10}
-              updateCellsBatchingPeriod={50}
-              initialNumToRender={5}
-              windowSize={5}
-              nestedScrollEnabled={true}
-              scrollEnabled={false}
-            />
+                renderItem={({ item }) => {
+                  if (item.type === 'header') {
+                    return renderGroupHeader(item.groupKey!);
+                  }
+                  return renderNotificationItem({ item: item.notification! });
+                }}
+                showsVerticalScrollIndicator={false}
+                removeClippedSubviews={true}
+                maxToRenderPerBatch={10}
+                updateCellsBatchingPeriod={50}
+                initialNumToRender={10}
+                windowSize={5}
+                nestedScrollEnabled={true}
+                scrollEnabled={false}
+              />
+              
+              {/* Load More / Loading Indicator */}
+              {hasMore && (
+                <View style={styles.loadMoreContainer}>
+                  {loadingMore ? (
+                    <ActivityIndicator size="small" color="#160B53" />
+                  ) : (
+                    <TouchableOpacity onPress={handleLoadMore} style={styles.loadMoreButton}>
+                      <Text style={styles.loadMoreText}>Load More</Text>
+                      <Ionicons name="chevron-down" size={16} color="#160B53" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </>
           )}
 
-          {/* Pagination Controls */}
-          <StylistPagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={filteredNotifications.length}
-            itemsPerPage={itemsPerPage}
-            onNextPage={handleNextPage}
-            onPrevPage={handlePrevPage}
-          />
+          {/* Showing count */}
+          {filteredNotifications.length > 0 && (
+            <View style={styles.showingCountContainer}>
+              <Text style={styles.showingCountText}>
+                Showing {displayedNotifications.length} of {filteredNotifications.length} notifications
+              </Text>
+            </View>
+          )}
         </StylistSection>
         </>
         )}
@@ -1133,5 +1144,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: FONTS.medium,
     color: '#FFFFFF',
+  },
+  // Load More Styles
+  loadMoreContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  loadMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  loadMoreText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  showingCountContainer: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  showingCountText: {
+    fontSize: 12,
+    fontFamily: FONTS.regular,
+    color: '#9CA3AF',
   },
 });

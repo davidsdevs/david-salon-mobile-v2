@@ -13,11 +13,12 @@ import {
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, getDocs, collection, query, where, updateDoc, onSnapshot } from 'firebase/firestore';
-import { db, COLLECTIONS, storage } from '../../config/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, COLLECTIONS } from '../../config/firebase';
+import { cloudinaryService } from '../../services/cloudinaryService';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenWrapper from '../../components/ScreenWrapper';
+import ProfilePictureUpload from '../../components/ProfilePictureUpload';
 import {
   StylistSection,
   StylistPageTitle,
@@ -32,7 +33,6 @@ export default function StylistProfileScreen() {
   const [branchName, setBranchName] = useState<string>('Loading...');
   const [services, setServices] = useState<string[]>([]);
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
-  const [uploadingImage, setUploadingImage] = useState<boolean>(false);
 
   // Set up real-time subscription for branch name
   useEffect(() => {
@@ -161,104 +161,15 @@ export default function StylistProfileScreen() {
     roles: user?.roles
   });
 
-  const handleUploadProfileImage = async () => {
-    try {
-      // Show options to user
-      Alert.alert(
-        'Upload Profile Photo',
-        'Choose an option',
-        [
-          {
-            text: 'Take Photo',
-            onPress: () => handleImagePick('camera'),
-          },
-          {
-            text: 'Choose from Gallery',
-            onPress: () => handleImagePick('gallery'),
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-        ],
-        { cancelable: true }
-      );
-    } catch (error) {
-      console.error('Error showing image options:', error);
-      Alert.alert('Error', 'Failed to show image options. Please try again.');
-    }
-  };
-
-  const handleImagePick = async (source: 'camera' | 'gallery') => {
-    try {
-      let result;
-
-      if (source === 'camera') {
-        // Request camera permission
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permission Denied', 'We need camera permissions to take a photo.');
-          return;
-        }
-
-        // Launch camera
-        result = await ImagePicker.launchCameraAsync({
-          allowsEditing: true,
-          aspect: [1, 1],
-          quality: 0.8,
-        });
-      } else {
-        // Request gallery permission
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permission Denied', 'We need gallery permissions to choose a photo.');
-          return;
-        }
-
-        // Launch gallery
-        result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
-          aspect: [1, 1],
-          quality: 0.8,
-        });
-      }
-
-      if (result.canceled || !result.assets || result.assets.length === 0) {
-        return;
-      }
-
-      setUploadingImage(true);
-      const imageUri = result.assets[0].uri;
-
-      // Upload to Firebase Storage
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
-      const filename = `profile_images/${user?.uid}_${Date.now()}.jpg`;
-      const storageRef = ref(storage, filename);
-      
-      await uploadBytes(storageRef, blob);
-      const downloadURL = await getDownloadURL(storageRef);
-
-      // Update Firestore
-      if (user?.id) {
-        await updateDoc(doc(db, COLLECTIONS.USERS, user.id), {
-          profileImage: downloadURL,
-        });
-
-        // Update Redux and AsyncStorage
-        const updatedUser = { ...user, profileImage: downloadURL };
-        updateUserProfile(updatedUser);
-        await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
-
-        Alert.alert('Success', 'Profile image updated successfully!');
-      }
-    } catch (error) {
-      console.error('Error uploading profile image:', error);
-      Alert.alert('Error', 'Failed to upload profile image. Please try again.');
-    } finally {
-      setUploadingImage(false);
-    }
+  const handleProfilePictureUpload = async (imageUrl: string, publicId: string) => {
+    // Update Redux and AsyncStorage
+    const updatedUser = { 
+      ...user, 
+      profileImage: imageUrl,
+      profileImagePublicId: publicId,
+    };
+    updateUserProfile(updatedUser);
+    await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
   };
 
   const handleEditProfile = () => {
@@ -441,28 +352,14 @@ export default function StylistProfileScreen() {
             {/* Background Gradient */}
             <View style={styles.profileHeaderBackground}>
               <View style={styles.avatarSection}>
-                <View style={styles.avatarContainer}>
-                  <View style={styles.avatar}>
-                    {user?.profileImage ? (
-                      <Image source={{ uri: user.profileImage }} style={styles.profileImage} />
-                    ) : (
-                      <View style={styles.avatarPlaceholder}>
-                        <Ionicons name="person" size={48} color="#FFFFFF" />
-                      </View>
-                    )}
-                  </View>
-                  <TouchableOpacity 
-                    style={styles.editAvatarButton}
-                    onPress={handleUploadProfileImage}
-                    disabled={uploadingImage}
-                  >
-                    {uploadingImage ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Ionicons name="camera" size={16} color="#FFFFFF" />
-                    )}
-                  </TouchableOpacity>
-                </View>
+                <ProfilePictureUpload
+                  userId={user?.id || user?.uid || ''}
+                  currentImageUrl={user?.profileImage}
+                  currentPublicId={(user as any)?.profileImagePublicId}
+                  onUploadSuccess={handleProfilePictureUpload}
+                  size={100}
+                  showEditButton={true}
+                />
               </View>
             </View>
             

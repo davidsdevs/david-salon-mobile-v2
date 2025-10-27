@@ -235,6 +235,52 @@ class CloudinaryService {
       original: this.getOptimizedUrl(publicId),
     };
   }
+
+  /**
+   * Upload profile picture with circular crop
+   * @param imageUri - Local image URI from image picker
+   * @param userId - User ID for folder organization
+   */
+  async uploadProfilePicture(
+    imageUri: string,
+    userId: string
+  ): Promise<CloudinaryUploadResult> {
+    return this.uploadImage(imageUri, {
+      folder: `profile_pictures/${userId}`,
+      tags: ['profile_picture', userId],
+      context: {
+        userId,
+        uploadedAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  /**
+   * Get profile picture URL with circular crop
+   * @param publicId - Public ID of the profile image
+   * @param size - Size of the profile picture (default: 200)
+   */
+  getProfilePictureUrl(publicId: string, size: number = 200): string {
+    return `https://res.cloudinary.com/${this.cloudName}/image/upload/c_fill,w_${size},h_${size},g_face,r_max,q_auto,f_auto/${publicId}`;
+  }
+
+  /**
+   * Get profile picture URLs in different sizes
+   * @param publicId - Public ID of the profile image
+   */
+  getProfilePictureUrls(publicId: string): {
+    small: string;    // 50x50
+    medium: string;   // 100x100
+    large: string;    // 200x200
+    xlarge: string;   // 400x400
+  } {
+    return {
+      small: this.getProfilePictureUrl(publicId, 50),
+      medium: this.getProfilePictureUrl(publicId, 100),
+      large: this.getProfilePictureUrl(publicId, 200),
+      xlarge: this.getProfilePictureUrl(publicId, 400),
+    };
+  }
 }
 
 // Export singleton instance

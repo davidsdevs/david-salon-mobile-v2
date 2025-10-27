@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider, useSelector, useDispatch } from 'react-redux';
 import { AppState, Platform, View, Text, Image } from 'react-native';
+import Constants from 'expo-constants';
 import { BookingProvider } from './src/context/BookingContext';
 
 // Import navigation and screens
@@ -189,7 +190,11 @@ function AppContent() {
   useEffect(() => {
     if (isAuthenticated && userType === 'stylist') {
       // Clear badge when app is opened
-      Notifications.setBadgeCountAsync(0);
+      // Skip in Expo Go to avoid errors
+      const isExpoGo = Constants.appOwnership === 'expo';
+      if (!isExpoGo) {
+        Notifications.setBadgeCountAsync(0);
+      }
     }
   }, [isAuthenticated, userType]);
 
