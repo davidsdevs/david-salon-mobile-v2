@@ -16,7 +16,7 @@ import { db } from '../config/firebase';
 export interface NotificationData {
   recipientId: string;
   recipientRole?: 'client' | 'stylist';
-  type: 'appointment_cancelled' | 'appointment_confirmed' | 'appointment_rescheduled' | 'appointment_reminder' | 'appointment_created' | 'general';
+  type: 'appointment_cancelled' | 'appointment_confirmed' | 'appointment_rescheduled' | 'appointment_reminder' | 'appointment_created' | 'walk_in_client' | 'transaction_paid' | 'general';
   title: string;
   message: string;
   data?: any;

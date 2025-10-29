@@ -9,8 +9,8 @@ import { StylistTabParamList } from '../../types';
 // Import stylist screens
 import StylistDashboardScreen from '../../screens/stylist/StylistDashboardScreen';
 import StylistAppointmentsScreen from '../../screens/stylist/StylistAppointmentsScreen';
-import StylistScheduleScreen from '../../screens/stylist/StylistScheduleScreen';
-import StylistEarningsScreen from '../../screens/stylist/StylistEarningsScreen';
+import StylistServicesScreen from '../../screens/stylist/StylistServicesScreen';
+import StylistPortfolioScreen from '../../screens/stylist/StylistPortfolioScreen';
 import StylistProfileScreen from '../../screens/stylist/StylistProfileScreen';
 
 const Tab = createBottomTabNavigator<StylistTabParamList>();
@@ -33,8 +33,8 @@ const TabIcon = ({
     const iconMap = {
       home: focused ? 'home' : 'home-outline',
       calendar: focused ? 'calendar' : 'calendar-outline',
-      schedule: focused ? 'time' : 'time-outline',
-      earnings: focused ? 'wallet' : 'wallet-outline',
+      history: focused ? 'cut' : 'cut-outline',
+      portfolio: focused ? 'images' : 'images-outline',
       profile: focused ? 'person' : 'person-outline',
     };
     return iconMap[iconName as keyof typeof iconMap] || 'home-outline';
@@ -137,25 +137,25 @@ export default function StylistTabNavigator() {
         }}
       />
       <Tab.Screen 
-        name="StylistSchedule" 
-        component={StylistScheduleScreen}
+        name="StylistServiceHistory" 
+        component={StylistServicesScreen}
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon 
               focused={focused} 
-              iconName="schedule" 
+              iconName="history" 
             />
           ),
         }}
       />
       <Tab.Screen 
-        name="StylistEarnings" 
-        component={StylistEarningsScreen}
+        name="StylistPortfolio" 
+        component={StylistPortfolioScreen}
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon 
               focused={focused} 
-              iconName="earnings" 
+              iconName="portfolio" 
             />
           ),
         }}

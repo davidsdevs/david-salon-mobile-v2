@@ -14,8 +14,10 @@ export type RootStackParamList = {
   StylistProfile: undefined;
   StylistServiceHistory: undefined;
   StylistPortfolio: undefined;
+  StylistEarnings: undefined;
   StylistEditProfile: undefined;
   StylistChangePassword: undefined;
+  StylistNotificationSettings: undefined;
   StylistTransactionDetails: { client: any };
 };
 
@@ -30,7 +32,8 @@ export type MainTabParamList = {
 export type StylistTabParamList = {
   StylistDashboard: undefined;
   StylistAppointments: undefined;
-  StylistSchedule: undefined;
+  StylistServiceHistory: undefined;
+  StylistPortfolio: undefined;
   StylistEarnings: undefined;
   StylistProfile: undefined;
 };

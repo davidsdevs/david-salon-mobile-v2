@@ -33,6 +33,11 @@ export default function StylistProfileScreen() {
   const [branchName, setBranchName] = useState<string>('Loading...');
   const [services, setServices] = useState<string[]>([]);
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
+  const [overallStats, setOverallStats] = useState({
+    totalClients: 0,
+    totalEarnings: 0,
+    totalAppointments: 0,
+  });
 
   // Set up real-time subscription for branch name
   useEffect(() => {
@@ -129,6 +134,82 @@ export default function StylistProfileScreen() {
     fetchStylistServices();
   }, [user?.id]);
 
+  // Fetch overall stats from transactions
+  useEffect(() => {
+    if (!user?.id) return;
+
+    console.log('📊 Setting up real-time subscription for overall stats');
+    const transactionsRef = collection(db, 'transactions');
+    const paidTransactionsQuery = query(transactionsRef, where('status', '==', 'paid'));
+
+    const unsubscribe = onSnapshot(paidTransactionsQuery, (querySnapshot) => {
+      try {
+        let totalEarnings = 0;
+        const uniqueClients = new Set<string>();
+        let serviceCount = 0;
+
+        querySnapshot.forEach((doc) => {
+          const transData = doc.data();
+
+          // Check if this transaction has services for this stylist
+          if (transData['services'] && Array.isArray(transData['services'])) {
+            let hasStylistService = false;
+
+            transData['services'].forEach((service: any) => {
+              if (service.stylistId === user.id) {
+                hasStylistService = true;
+
+                // Calculate commission (60% of service total)
+                const serviceTotal = Number(service.adjustedPrice) || 0;
+                const commission = serviceTotal * 0.6;
+                totalEarnings += commission;
+
+                // Count each service performed by this stylist
+                serviceCount++;
+              }
+            });
+
+            // Count unique clients
+            if (hasStylistService) {
+              const clientId = transData['clientId'];
+              if (clientId) {
+                uniqueClients.add(clientId);
+              }
+            }
+
+            // Add product commissions if stylist sold products
+            if (hasStylistService && transData['products'] && Array.isArray(transData['products'])) {
+              transData['products'].forEach((product: any) => {
+                const productTotal = Number((Number(product.price) || 0) * (Number(product.quantity) || 1));
+                const commission = productTotal * 0.1;
+                totalEarnings += commission;
+              });
+            }
+          }
+        });
+
+        setOverallStats({
+          totalClients: uniqueClients.size,
+          totalEarnings: totalEarnings,
+          totalAppointments: serviceCount,
+        });
+
+        console.log('✅ Overall stats updated:', {
+          totalClients: uniqueClients.size,
+          totalEarnings: totalEarnings.toFixed(2),
+          totalServices: serviceCount,
+        });
+      } catch (error) {
+        console.error('❌ Error calculating overall stats:', error);
+      }
+    });
+
+    return () => {
+      console.log('🧹 Cleaning up stats subscription');
+      unsubscribe();
+    };
+  }, [user?.id]);
+
   // Scroll to top when screen is focused
   useFocusEffect(
     useCallback(() => {
@@ -143,7 +224,7 @@ export default function StylistProfileScreen() {
     phone: user?.phone || 'Not set',
     branch: branchName,
     specialization: (user as any)?.specialization?.join(', ') || 'General',
-    yearsOfExperience: (user as any)?.experience || 0,
+    totalAppointments: overallStats.totalAppointments,
     totalClients: (user as any)?.totalClients || 0,
     rating: (user as any)?.rating || 0,
     joinedDate: user?.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Recently',
@@ -181,7 +262,7 @@ export default function StylistProfileScreen() {
   };
 
   const handleNotificationSettings = () => {
-    Alert.alert('Notifications', 'Notification settings coming soon');
+    (navigation as any).navigate('StylistNotificationSettings');
   };
 
   const handleLogout = () => {
@@ -255,12 +336,12 @@ export default function StylistProfileScreen() {
           
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{stylistData.totalClients}</Text>
+              <Text style={styles.statNumber}>{overallStats.totalClients}</Text>
               <Text style={styles.statLabel}>Clients</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{stylistData.yearsOfExperience}</Text>
-              <Text style={styles.statLabel}>Years Exp.</Text>
+              <Text style={styles.statNumber}>{overallStats.totalAppointments}</Text>
+              <Text style={styles.statLabel}>Services</Text>
             </View>
           </View>
         </View>
@@ -388,22 +469,22 @@ export default function StylistProfileScreen() {
                 <View style={[styles.statIconContainer, { backgroundColor: '#EEF2FF' }]}>
                   <Ionicons name="people" size={20} color="#6366F1" />
                 </View>
-                <Text style={styles.statNumber}>{stylistData.totalClients}</Text>
+                <Text style={styles.statNumber}>{overallStats.totalClients}</Text>
                 <Text style={styles.statLabel}>Total Clients</Text>
               </View>
               <View style={styles.statCard}>
                 <View style={[styles.statIconContainer, { backgroundColor: '#D1FAE5' }]}>
                   <Ionicons name="cash" size={20} color="#10B981" />
                 </View>
-                <Text style={styles.statNumber}>₱{((user as any)?.totalEarnings || 0).toFixed(2)}</Text>
+                <Text style={styles.statNumber}>₱{overallStats.totalEarnings.toFixed(2)}</Text>
                 <Text style={styles.statLabel}>Earnings</Text>
               </View>
               <View style={styles.statCard}>
                 <View style={[styles.statIconContainer, { backgroundColor: '#FEF3C7' }]}>
-                  <Ionicons name="time" size={20} color="#F59E0B" />
+                  <Ionicons name="cut" size={20} color="#F59E0B" />
                 </View>
-                <Text style={styles.statNumber}>{stylistData.yearsOfExperience}</Text>
-                <Text style={styles.statLabel}>Years Exp.</Text>
+                <Text style={styles.statNumber}>{overallStats.totalAppointments}</Text>
+                <Text style={styles.statLabel}>Total Services</Text>
               </View>
             </View>
           </View>
@@ -483,24 +564,13 @@ export default function StylistProfileScreen() {
           <View style={styles.quickLinksGrid}>
             <TouchableOpacity
               style={styles.quickLinkCard}
-              onPress={() => (navigation as any).navigate('StylistServiceHistory')}
+              onPress={() => (navigation as any).navigate('StylistEarnings')}
             >
               <View style={styles.quickLinkIcon}>
-                <Ionicons name="receipt-outline" size={24} color={APP_CONFIG.primaryColor} />
+                <Ionicons name="wallet-outline" size={24} color={APP_CONFIG.primaryColor} />
               </View>
-              <Text style={styles.quickLinkTitle}>Service History</Text>
-              <Text style={styles.quickLinkSubtitle}>View transactions</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.quickLinkCard}
-              onPress={() => (navigation as any).navigate('StylistPortfolio')}
-            >
-              <View style={styles.quickLinkIcon}>
-                <Ionicons name="images" size={24} color={APP_CONFIG.primaryColor} />
-              </View>
-              <Text style={styles.quickLinkTitle}>Portfolio</Text>
-              <Text style={styles.quickLinkSubtitle}>My work</Text>
+              <Text style={styles.quickLinkTitle}>My Earnings</Text>
+              <Text style={styles.quickLinkSubtitle}>View income</Text>
             </TouchableOpacity>
           </View>
         </StylistSection>

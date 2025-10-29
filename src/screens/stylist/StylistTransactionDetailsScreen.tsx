@@ -39,23 +39,26 @@ interface TransactionData {
   notes: string;
   paymentMethod: string;
   products: Array<{
+    id?: string;
     price: number;
-    productId: string;
-    productName: string;
+    productId?: string;
+    name?: string;
+    productName?: string;
     quantity: number;
-    total: number;
+    total?: number;
   }>;
   services: Array<{
     adjustedPrice: number;
-    adjustmentReason: string;
-    basePrice: number;
-    clientType: string;
-    priceAdjustment: number;
+    adjustmentReason?: string;
+    basePrice?: number;
+    price?: number;
+    clientType?: string | null;
+    priceAdjustment?: number;
     serviceId: string;
     serviceName: string;
     stylistId: string;
     stylistName: string;
-    total: number;
+    total?: number;
   }>;
   status: string;
   subtotal: number;
@@ -144,7 +147,6 @@ export default function StylistTransactionDetailsScreen() {
   // Get the stylist's service from the transaction
   const stylistId = user?.uid || user?.id;
   const stylistService = transaction.services.find(s => s.stylistId === stylistId);
-  const otherServices = transaction.services.filter(s => s.stylistId !== stylistId);
 
   // Format date
   const transactionDate = transaction.createdAt?.toDate
@@ -158,18 +160,20 @@ export default function StylistTransactionDetailsScreen() {
     : 'N/A';
 
   // Get client type label
-  const getClientTypeLabel = (type: string) => {
-    if (type === 'X') return 'X - New Client';
-    if (type === 'R') return 'R - Regular';
-    if (type === 'TR') return 'TR - Transfer';
-    return type;
+  const getClientTypeLabel = (type: string | null | undefined) => {
+    if (!type) return 'R';
+    if (type === 'X') return 'X';
+    if (type === 'R') return 'R';
+    if (type === 'TR') return 'TR';
+    return 'R';
   };
 
-  const getClientTypeVariant = (type: string) => {
+  const getClientTypeVariant = (type: string | null | undefined) => {
+    if (!type) return 'regular';
     if (type === 'X') return 'new-client';
     if (type === 'R') return 'regular';
     if (type === 'TR') return 'transfer';
-    return 'default';
+    return 'regular';
   };
 
   return (
@@ -192,7 +196,7 @@ export default function StylistTransactionDetailsScreen() {
                     transaction.status === 'pending' && styles.statusPending,
                   ]}>
                     <Text style={styles.statusText}>
-                      {transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1)}
+                      {transaction.status ? transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1) : 'Unknown'}
                     </Text>
                   </View>
                 </View>
@@ -258,13 +262,13 @@ export default function StylistTransactionDetailsScreen() {
                 <View style={styles.priceBreakdown}>
                   <View style={styles.priceRow}>
                     <Text style={styles.priceLabel}>Base Price</Text>
-                    <Text style={styles.priceValue}>₱{stylistService.basePrice.toFixed(2)}</Text>
+                    <Text style={styles.priceValue}>₱{(Number(stylistService.basePrice || stylistService.price || (stylistService.adjustedPrice - (stylistService.priceAdjustment || 0))) || 0).toFixed(2)}</Text>
                   </View>
-                  {stylistService.priceAdjustment !== 0 && (
+                  {stylistService.priceAdjustment != null && stylistService.priceAdjustment !== 0 && (
                     <View style={styles.priceRow}>
                       <Text style={styles.priceLabel}>Adjustment</Text>
-                      <Text style={[styles.priceValue, stylistService.priceAdjustment > 0 ? styles.pricePositive : styles.priceNegative]}>
-                        {stylistService.priceAdjustment > 0 ? '+' : ''}₱{stylistService.priceAdjustment.toFixed(2)}
+                      <Text style={[styles.priceValue, (stylistService.priceAdjustment || 0) > 0 ? styles.pricePositive : styles.priceNegative]}>
+                        {(stylistService.priceAdjustment || 0) > 0 ? '+' : ''}₱{(Number(stylistService.priceAdjustment) || 0).toFixed(2)}
                       </Text>
                     </View>
                   )}
@@ -276,31 +280,10 @@ export default function StylistTransactionDetailsScreen() {
                   )}
                   <View style={[styles.priceRow, styles.totalRow]}>
                     <Text style={styles.totalLabel}>Service Total</Text>
-                    <Text style={styles.totalValue}>₱{stylistService.total.toFixed(2)}</Text>
+                    <Text style={styles.totalValue}>₱{(Number(stylistService.total || stylistService.adjustedPrice) || 0).toFixed(2)}</Text>
                   </View>
                 </View>
               </View>
-            </View>
-          </StylistSection>
-        )}
-
-        {/* Other Services in Transaction */}
-        {otherServices.length > 0 && (
-          <StylistSection>
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <Ionicons name="people" size={20} color="#160B53" />
-                <Text style={styles.sectionTitle}>Other Services</Text>
-              </View>
-              {otherServices.map((service, index) => (
-                <View key={index} style={styles.otherServiceCard}>
-                  <View style={styles.otherServiceHeader}>
-                    <Text style={styles.otherServiceName}>{service.serviceName}</Text>
-                    <Text style={styles.otherServicePrice}>₱{service.total.toFixed(2)}</Text>
-                  </View>
-                  <Text style={styles.otherServiceStylist}>by {service.stylistName}</Text>
-                </View>
-              ))}
             </View>
           </StylistSection>
         )}
@@ -316,10 +299,10 @@ export default function StylistTransactionDetailsScreen() {
               {transaction.products.map((product, index) => (
                 <View key={index} style={styles.productCard}>
                   <View style={styles.productInfo}>
-                    <Text style={styles.productName}>{product.productName}</Text>
+                    <Text style={styles.productName}>{product.name || product.productName}</Text>
                     <Text style={styles.productQuantity}>Qty: {product.quantity}</Text>
                   </View>
-                  <Text style={styles.productPrice}>₱{product.total.toFixed(2)}</Text>
+                  <Text style={styles.productPrice}>₱{(Number(product.total || (product.price * product.quantity)) || 0).toFixed(2)}</Text>
                 </View>
               ))}
             </View>
@@ -335,28 +318,28 @@ export default function StylistTransactionDetailsScreen() {
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Subtotal</Text>
-              <Text style={styles.summaryValue}>₱{transaction.subtotal.toFixed(2)}</Text>
+              <Text style={styles.summaryValue}>₱{(Number(transaction.subtotal) || 0).toFixed(2)}</Text>
             </View>
             {transaction.discount > 0 && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Discount</Text>
-                <Text style={[styles.summaryValue, styles.discountValue]}>-₱{transaction.discount.toFixed(2)}</Text>
+                <Text style={[styles.summaryValue, styles.discountValue]}>-₱{(Number(transaction.discount) || 0).toFixed(2)}</Text>
               </View>
             )}
             {transaction.tax > 0 && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Tax</Text>
-                <Text style={styles.summaryValue}>₱{transaction.tax.toFixed(2)}</Text>
+                <Text style={styles.summaryValue}>₱{(Number(transaction.tax) || 0).toFixed(2)}</Text>
               </View>
             )}
             <View style={[styles.summaryRow, styles.totalSummaryRow]}>
               <Text style={styles.totalSummaryLabel}>Total</Text>
-              <Text style={styles.totalSummaryValue}>₱{transaction.total.toFixed(2)}</Text>
+              <Text style={styles.totalSummaryValue}>₱{(Number(transaction.total) || 0).toFixed(2)}</Text>
             </View>
             <View style={styles.paymentMethodRow}>
               <Ionicons name="card-outline" size={16} color="#6B7280" />
               <Text style={styles.paymentMethodText}>
-                Paid via {transaction.paymentMethod.charAt(0).toUpperCase() + transaction.paymentMethod.slice(1)}
+                Paid via {transaction.paymentMethod ? transaction.paymentMethod.charAt(0).toUpperCase() + transaction.paymentMethod.slice(1) : 'Unknown'}
               </Text>
             </View>
           </View>
@@ -675,38 +658,8 @@ const styles = StyleSheet.create({
   },
   notesText: {
     fontSize: TYPOGRAPHY.body,
-    color: '#160B53',
+    color: '#374151',
     fontFamily: FONTS.regular,
     lineHeight: 22,
-  },
-  otherServiceCard: {
-    backgroundColor: '#F9FAFB',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  otherServiceHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  otherServiceName: {
-    fontSize: TYPOGRAPHY.body,
-    color: '#160B53',
-    fontFamily: FONTS.semiBold,
-    flex: 1,
-  },
-  otherServicePrice: {
-    fontSize: TYPOGRAPHY.body,
-    color: '#160B53',
-    fontFamily: FONTS.bold,
-  },
-  otherServiceStylist: {
-    fontSize: TYPOGRAPHY.caption,
-    color: '#6B7280',
-    fontFamily: FONTS.regular,
   },
 });

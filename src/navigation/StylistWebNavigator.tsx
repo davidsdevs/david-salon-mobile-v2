@@ -7,8 +7,9 @@ import { StylistTabParamList } from '../types';
 // Import stylist screens
 import StylistDashboardScreen from '../screens/stylist/StylistDashboardScreen';
 import StylistAppointmentsScreen from '../screens/stylist/StylistAppointmentsScreen';
-import StylistServiceHistoryScreen from '../screens/stylist/StylistServiceHistoryScreen';
+import StylistServicesScreen from '../screens/stylist/StylistServicesScreen';
 import StylistPortfolioScreen from '../screens/stylist/StylistPortfolioScreen';
+import StylistEarningsScreen from '../screens/stylist/StylistEarningsScreen';
 import StylistProfileScreen from '../screens/stylist/StylistProfileScreen';
 
 const Stack = createStackNavigator<StylistTabParamList>();
@@ -56,7 +57,7 @@ export default function StylistWebNavigator() {
       <Stack.Screen name="StylistServiceHistory">
         {() => (
           <ScreenWrapper screenName="StylistServiceHistory">
-            <StylistServiceHistoryScreen />
+            <StylistServicesScreen />
           </ScreenWrapper>
         )}
       </Stack.Screen>
@@ -64,6 +65,13 @@ export default function StylistWebNavigator() {
         {() => (
           <ScreenWrapper screenName="StylistPortfolio">
             <StylistPortfolioScreen />
+          </ScreenWrapper>
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="StylistEarnings">
+        {() => (
+          <ScreenWrapper screenName="StylistEarnings">
+            <StylistEarningsScreen />
           </ScreenWrapper>
         )}
       </Stack.Screen>

@@ -37,16 +37,17 @@ export default function Header({
   const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Listen to unread notifications
+  // Listen to all notifications
   useEffect(() => {
     if (!user?.uid && !user?.id) return;
 
     const userId = user.uid || user.id;
+    
     const notificationsRef = collection(db, COLLECTIONS.NOTIFICATIONS);
+    // Show all notifications (both read and unread)
     const q = query(
       notificationsRef,
-      where('userId', '==', userId),
-      where('isRead', '==', false)
+      where('recipientId', '==', userId)
     );
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {

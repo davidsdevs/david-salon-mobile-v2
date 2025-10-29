@@ -8,9 +8,11 @@ import {
   Dimensions,
   Platform,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { Calendar } from 'react-native-calendars';
 import { collection, query, where, getDocs, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../config/firebase';
 import { useAuth } from '../../hooks/redux';
@@ -28,10 +30,16 @@ import { APP_CONFIG, FONTS } from '../../constants';
 
 const { width } = Dimensions.get('window');
 
-export default function StylistServiceHistoryScreen() {
+export default function StylistServicesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All Types');
+  const [selectedStatus, setSelectedStatus] = useState('All');
   const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const navigation = useNavigation();
   const scrollViewRef = useRef<ScrollView>(null);
   const { user } = useAuth();
@@ -42,7 +50,7 @@ export default function StylistServiceHistoryScreen() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedFilter, searchQuery]);
+  }, [selectedFilter, selectedStatus, searchQuery, startDate, endDate]);
 
   // Scroll to top when screen is focused
   useFocusEffect(
@@ -56,10 +64,11 @@ export default function StylistServiceHistoryScreen() {
     name: string;
     service: string;
     date: string;
-    type: 'X - New Client' | 'R - Regular' | 'TR - Transfer';
+    type: 'X' | 'R' | 'TR';
     amount: string;
     paymentMethod: string;
     status: string;
+    isWalkIn: boolean;
     clientInfo: {
       name: string;
       email: string;
@@ -95,10 +104,10 @@ export default function StylistServiceHistoryScreen() {
             data['services'].forEach((service: any) => {
               if (service.stylistId === stylistId) {
                 // Map client type from service
-                let clientType: 'X - New Client' | 'R - Regular' | 'TR - Transfer' = 'R - Regular';
-                if (service.clientType === 'X') clientType = 'X - New Client';
-                else if (service.clientType === 'R') clientType = 'R - Regular';
-                else if (service.clientType === 'TR') clientType = 'TR - Transfer';
+                let clientType: 'X' | 'R' | 'TR' = 'R';
+                if (service.clientType === 'X') clientType = 'X';
+                else if (service.clientType === 'R') clientType = 'R';
+                else if (service.clientType === 'TR') clientType = 'TR';
                 
                 // Format date
                 const transactionDate = data['createdAt']?.toDate 
@@ -115,9 +124,10 @@ export default function StylistServiceHistoryScreen() {
                   service: service.serviceName || 'Unknown Service',
                   date: transactionDate,
                   type: clientType,
-                  amount: `₱${(service.total || service.adjustedPrice || 0).toFixed(2)}`,
+                  amount: `₱${(Number(service.adjustedPrice) || 0).toFixed(2)}`,
                   paymentMethod: data['paymentMethod'] || 'N/A',
                   status: data['status'] || 'pending',
+                  isWalkIn: !data['appointmentId'], // No appointmentId means walk-in
                   clientInfo: {
                     name: data['clientInfo']?.name || 'Unknown',
                     email: data['clientInfo']?.email || 'N/A',
@@ -129,8 +139,16 @@ export default function StylistServiceHistoryScreen() {
           }
         });
         
-        // Sort by date (newest first)
+        // Sort by status (in_service first) then by date (newest first)
         transactionsList.sort((a, b) => {
+          // Prioritize "in_service" status
+          const aIsInService = a.status.toLowerCase() === 'in_service' || a.status.toLowerCase() === 'in service';
+          const bIsInService = b.status.toLowerCase() === 'in_service' || b.status.toLowerCase() === 'in service';
+          
+          if (aIsInService && !bIsInService) return -1;
+          if (!aIsInService && bIsInService) return 1;
+          
+          // If both have same status priority, sort by date (newest first)
           const dateA = new Date(a.date);
           const dateB = new Date(b.date);
           return dateB.getTime() - dateA.getTime();
@@ -156,13 +174,47 @@ export default function StylistServiceHistoryScreen() {
     };
   }, [user?.id, user?.uid]);
 
-  const filterOptions = ['All Types', 'X - New Client', 'R - Regular', 'TR - Transfer'];
+  const filterOptions = ['All Types', 'X', 'R', 'TR'];
+  const statusFilterOptions = ['All', 'In Service', 'Paid'];
 
   const filteredClients = clients.filter(client => {
     const matchesSearch = client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          client.service.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFilter = selectedFilter === 'All Types' || client.type === selectedFilter;
-    return matchesSearch && matchesFilter;
+    
+    // Status filter logic
+    let matchesStatus = true;
+    if (selectedStatus === 'In Service') {
+      matchesStatus = client.status.toLowerCase() === 'in service' || client.status.toLowerCase() === 'in_service';
+    } else if (selectedStatus === 'Paid') {
+      matchesStatus = client.status.toLowerCase() === 'paid' || client.status.toLowerCase() === 'completed';
+    }
+    // 'All' shows everything
+    
+    // Date range filter logic
+    let matchesDate = true;
+    if (startDate || endDate) {
+      const transactionDate = new Date(client.date);
+      transactionDate.setHours(0, 0, 0, 0);
+      
+      if (startDate && endDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        matchesDate = transactionDate >= start && transactionDate <= end;
+      } else if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        matchesDate = transactionDate >= start;
+      } else if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        matchesDate = transactionDate <= end;
+      }
+    }
+    
+    return matchesSearch && matchesFilter && matchesStatus && matchesDate;
   });
 
   const totalPages = Math.ceil(filteredClients.length / itemsPerPage);
@@ -203,6 +255,53 @@ export default function StylistServiceHistoryScreen() {
   if (Platform.OS === 'web') {
     return (
       <View style={styles.webContainer}>
+        {/* Filter Category */}
+        <StylistSection>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickFiltersScroll}>
+            <View style={styles.quickFiltersCompact}>
+              {statusFilterOptions.map((filter: string) => {
+                const count = clients.filter(c => {
+                  if (filter === 'All') return true;
+                  if (filter === 'In Service') return c.status.toLowerCase() === 'in_service' || c.status.toLowerCase() === 'in service';
+                  if (filter === 'Paid') return c.status.toLowerCase() === 'paid' || c.status.toLowerCase() === 'completed';
+                  return false;
+                }).length;
+
+                return (
+                  <TouchableOpacity
+                    key={filter}
+                    style={[
+                      styles.quickFilterChip,
+                      selectedStatus === filter && styles.quickFilterChipActive
+                    ]}
+                    onPress={() => setSelectedStatus(filter)}
+                  >
+                    <Text style={[
+                      styles.quickFilterText,
+                      selectedStatus === filter && styles.quickFilterTextActive
+                    ]}>
+                      {filter}
+                    </Text>
+                    {count > 0 && (
+                      <View style={[
+                        styles.quickFilterBadge,
+                        selectedStatus === filter && styles.quickFilterBadgeActive
+                      ]}>
+                        <Text style={[
+                          styles.quickFilterBadgeText,
+                          selectedStatus === filter && styles.quickFilterBadgeTextActive
+                        ]}>
+                          {count}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </StylistSection>
+
         {/* Search Header */}
         <StylistSection isTitle>
           <View style={styles.headerRow}>
@@ -214,14 +313,14 @@ export default function StylistServiceHistoryScreen() {
           </View>
         </StylistSection>
 
-        {/* Filter Tabs */}
+        {/* Client Type Filter Tabs */}
         <StylistSection>
           <View style={styles.filterTabs}>
             {filterOptions.map((filter) => {
               const getVariant = () => {
-                if (filter === 'X - New Client') return 'new-client';
-                if (filter === 'R - Regular') return 'regular';
-                if (filter === 'TR - Transfer') return 'transfer';
+                if (filter === 'X') return 'new-client';
+                if (filter === 'R') return 'regular';
+                if (filter === 'TR') return 'transfer';
                 return 'default';
               };
               return (
@@ -272,9 +371,9 @@ export default function StylistServiceHistoryScreen() {
           ) : (
             paginatedClients.map((client) => {
               const getVariant = () => {
-                if (client.type === 'X - New Client') return 'new-client';
-                if (client.type === 'R - Regular') return 'regular';
-                if (client.type === 'TR - Transfer') return 'transfer';
+                if (client.type === 'X') return 'new-client';
+                if (client.type === 'R') return 'regular';
+                if (client.type === 'TR') return 'transfer';
                 return 'default';
               };
               return (
@@ -298,12 +397,25 @@ export default function StylistServiceHistoryScreen() {
                           <Ionicons name="calendar-outline" size={14} color="#666" />
                           <Text style={styles.clientInfoText}>{client.date}</Text>
                         </View>
-                        <View style={styles.clientInfoItem}>
-                          <Ionicons name="cash-outline" size={14} color="#666" />
-                          <Text style={styles.clientInfoText}>{client.amount}</Text>
-                        </View>
+                        {client.isWalkIn && (
+                          <StylistBadge 
+                            label="Walk-in" 
+                            variant="in-service" 
+                            size="small" 
+                          />
+                        )}
                       </View>
                     </View>
+                  </View>
+                  <View style={styles.clientRight}>
+                    <Text style={styles.priceText}>{client.amount}</Text>
+                    {client.status && (
+                      <StylistBadge 
+                        label={client.status === 'in_service' || client.status === 'in service' ? 'In Service' : 'Paid'} 
+                        variant={client.status === 'in_service' || client.status === 'in service' ? 'in-service' : 'completed'} 
+                        size="small" 
+                      />
+                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -323,8 +435,55 @@ export default function StylistServiceHistoryScreen() {
   };
   // For mobile, use ScreenWrapper with header
   return (
-    <ScreenWrapper title="Service History" userType="stylist" showBackButton={true}>
+    <ScreenWrapper title="Services" userType="stylist" showBackButton={false}>
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Filter Category */}
+        <StylistSection>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickFiltersScroll}>
+            <View style={styles.quickFiltersCompact}>
+              {statusFilterOptions.map((filter: string) => {
+                const count = clients.filter(c => {
+                  if (filter === 'All') return true;
+                  if (filter === 'In Service') return c.status.toLowerCase() === 'in_service' || c.status.toLowerCase() === 'in service';
+                  if (filter === 'Paid') return c.status.toLowerCase() === 'paid' || c.status.toLowerCase() === 'completed';
+                  return false;
+                }).length;
+
+                return (
+                  <TouchableOpacity
+                    key={filter}
+                    style={[
+                      styles.quickFilterChip,
+                      selectedStatus === filter && styles.quickFilterChipActive
+                    ]}
+                    onPress={() => setSelectedStatus(filter)}
+                  >
+                    <Text style={[
+                      styles.quickFilterText,
+                      selectedStatus === filter && styles.quickFilterTextActive
+                    ]}>
+                      {filter}
+                    </Text>
+                    {count > 0 && (
+                      <View style={[
+                        styles.quickFilterBadge,
+                        selectedStatus === filter && styles.quickFilterBadgeActive
+                      ]}>
+                        <Text style={[
+                          styles.quickFilterBadgeText,
+                          selectedStatus === filter && styles.quickFilterBadgeTextActive
+                        ]}>
+                          {count}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </StylistSection>
+
         {/* Search and Sort */}
         <StylistSection>
           <View style={styles.searchSortRow}>
@@ -336,6 +495,23 @@ export default function StylistServiceHistoryScreen() {
               />
             </View>
             <View style={styles.sortButtons}>
+              {/* Calendar Button */}
+              <TouchableOpacity
+                style={[
+                  styles.sortButton, 
+                  (showDateRangePicker || startDate || endDate) && styles.sortButtonActive
+                ]}
+                onPress={() => setShowDateRangePicker(!showDateRangePicker)}
+              >
+                <Ionicons 
+                  name={(startDate || endDate) ? "calendar" : "calendar-outline"} 
+                  size={18} 
+                  color={(showDateRangePicker || startDate || endDate) ? '#FFFFFF' : '#6B7280'} 
+                />
+                {(startDate || endDate) && !showDateRangePicker && (
+                  <View style={styles.dateIndicatorDot} />
+                )}
+              </TouchableOpacity>
               {/* Sort Dropdown Button */}
               <View style={styles.sortContainer}>
                 <TouchableOpacity 
@@ -436,6 +612,61 @@ export default function StylistServiceHistoryScreen() {
             </View>
           </View>
         </StylistSection>
+
+        {/* Date Range Picker */}
+        {showDateRangePicker && (
+          <StylistSection>
+            <View style={styles.dateRangeCard}>
+              <Text style={styles.dateRangeTitle}>Transaction Date Range</Text>
+              
+              <View style={styles.dateRangeInputs}>
+                <View style={styles.dateInputContainer}>
+                  <Text style={styles.dateInputLabel}>Start Date</Text>
+                  <TouchableOpacity 
+                    style={styles.dateInput}
+                    onPress={() => setShowStartDatePicker(true)}
+                  >
+                    <Text style={[styles.dateInputText, startDate && { color: '#160B53' }]}>
+                      {startDate ? startDate.toLocaleDateString('en-US') : 'mm/dd/yyyy'}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.dateInputContainer}>
+                  <Text style={styles.dateInputLabel}>End Date</Text>
+                  <TouchableOpacity 
+                    style={styles.dateInput}
+                    onPress={() => setShowEndDatePicker(true)}
+                  >
+                    <Text style={[styles.dateInputText, endDate && { color: '#160B53' }]}>
+                      {endDate ? endDate.toLocaleDateString('en-US') : 'mm/dd/yyyy'}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.dateRangeActions}>
+                <TouchableOpacity 
+                  style={styles.clearButton}
+                  onPress={() => {
+                    setStartDate(null);
+                    setEndDate(null);
+                  }}
+                >
+                  <Text style={styles.clearButtonText}>Clear</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.applyButton}
+                  onPress={() => setShowDateRangePicker(false)}
+                >
+                  <Text style={styles.applyButtonText}>Apply</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </StylistSection>
+        )}
           
         {/* Clients List */}
         <StylistSection>
@@ -478,9 +709,9 @@ export default function StylistServiceHistoryScreen() {
           ) : (
             paginatedClients.map((client) => {
               const getVariant = () => {
-                if (client.type === 'X - New Client') return 'new-client';
-                if (client.type === 'R - Regular') return 'regular';
-                if (client.type === 'TR - Transfer') return 'transfer';
+                if (client.type === 'X') return 'new-client';
+                if (client.type === 'R') return 'regular';
+                if (client.type === 'TR') return 'transfer';
                 return 'default';
               };
               return (
@@ -504,12 +735,25 @@ export default function StylistServiceHistoryScreen() {
                           <Ionicons name="calendar-outline" size={14} color="#666" />
                           <Text style={styles.clientInfoText}>{client.date}</Text>
                         </View>
-                        <View style={styles.clientInfoItem}>
-                          <Ionicons name="cash-outline" size={14} color="#666" />
-                          <Text style={styles.clientInfoText}>{client.amount}</Text>
-                        </View>
+                        {client.isWalkIn && (
+                          <StylistBadge 
+                            label="Walk-in" 
+                            variant="in-service" 
+                            size="small" 
+                          />
+                        )}
                       </View>
                     </View>
+                  </View>
+                  <View style={styles.clientRight}>
+                    <Text style={styles.priceText}>{client.amount}</Text>
+                    {client.status && (
+                      <StylistBadge 
+                        label={client.status === 'in_service' || client.status === 'in service' ? 'In Service' : 'Paid'} 
+                        variant={client.status === 'in_service' || client.status === 'in service' ? 'in-service' : 'completed'} 
+                        size="small" 
+                      />
+                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -525,6 +769,81 @@ export default function StylistServiceHistoryScreen() {
             />
         </StylistSection>
       </ScrollView>
+
+      {/* Date Pickers */}
+      <Modal
+        visible={showStartDatePicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowStartDatePicker(false)}
+      >
+        <View style={styles.datePickerModal}>
+          <View style={styles.datePickerContainer}>
+            <View style={styles.datePickerHeader}>
+              <Text style={styles.datePickerTitle}>Select Start Date</Text>
+              <TouchableOpacity onPress={() => setShowStartDatePicker(false)}>
+                <Text style={styles.datePickerDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <Calendar
+              current={startDate ? startDate.toISOString().split('T')[0] : undefined}
+              onDayPress={(day) => {
+                setStartDate(new Date(day.dateString));
+                setShowStartDatePicker(false);
+              }}
+              markedDates={startDate ? {
+                [startDate.toISOString().split('T')[0]]: {
+                  selected: true,
+                  selectedColor: APP_CONFIG.primaryColor,
+                }
+              } : {}}
+              theme={{
+                todayTextColor: APP_CONFIG.primaryColor,
+                selectedDayBackgroundColor: APP_CONFIG.primaryColor,
+                selectedDayTextColor: '#FFFFFF',
+                arrowColor: APP_CONFIG.primaryColor,
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showEndDatePicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowEndDatePicker(false)}
+      >
+        <View style={styles.datePickerModal}>
+          <View style={styles.datePickerContainer}>
+            <View style={styles.datePickerHeader}>
+              <Text style={styles.datePickerTitle}>Select End Date</Text>
+              <TouchableOpacity onPress={() => setShowEndDatePicker(false)}>
+                <Text style={styles.datePickerDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <Calendar
+              current={endDate ? endDate.toISOString().split('T')[0] : undefined}
+              onDayPress={(day) => {
+                setEndDate(new Date(day.dateString));
+                setShowEndDatePicker(false);
+              }}
+              markedDates={endDate ? {
+                [endDate.toISOString().split('T')[0]]: {
+                  selected: true,
+                  selectedColor: APP_CONFIG.primaryColor,
+                }
+              } : {}}
+              theme={{
+                todayTextColor: APP_CONFIG.primaryColor,
+                selectedDayBackgroundColor: APP_CONFIG.primaryColor,
+                selectedDayTextColor: '#FFFFFF',
+                arrowColor: APP_CONFIG.primaryColor,
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenWrapper>
   );
 }
@@ -615,6 +934,12 @@ const styles = StyleSheet.create({
     color: '#160B53',
     fontFamily: FONTS.semiBold,
   },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
   clientService: {
     fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
     color: '#666',
@@ -622,7 +947,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   clientInfoRow: {
-    gap: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginTop: 4,
   },
   clientInfoItem: {
@@ -638,6 +965,12 @@ const styles = StyleSheet.create({
   clientRight: {
     alignItems: 'flex-end',
     justifyContent: 'center',
+  },
+  priceText: {
+    fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
+    color: '#160B53',
+    fontFamily: FONTS.bold,
+    marginBottom: 8,
   },
   viewProfileButton: {
     backgroundColor: '#160B53',
@@ -908,5 +1241,155 @@ const styles = StyleSheet.create({
   },
   quickFilterBadgeTextActive: {
     color: '#FFFFFF',
+  },
+  quickFiltersScroll: {
+    marginBottom: 0,
+  },
+  quickFiltersCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  // Status Filter Styles
+  statusFilterContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 0,
+  },
+  statusFilterTab: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusFilterTabActive: {
+    backgroundColor: APP_CONFIG.primaryColor,
+    borderColor: APP_CONFIG.primaryColor,
+  },
+  statusFilterText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#374151',
+  },
+  statusFilterTextActive: {
+    color: '#FFFFFF',
+  },
+  // Date Range Picker Styles
+  dateIndicatorDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+  },
+  dateRangeCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  dateRangeTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+    marginBottom: 16,
+  },
+  dateRangeInputs: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  dateInputContainer: {
+    flex: 1,
+  },
+  dateInputLabel: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  dateInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  dateInputText: {
+    fontSize: 14,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
+  },
+  dateRangeActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  clearButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  clearButtonText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#6B7280',
+  },
+  applyButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: APP_CONFIG.primaryColor,
+    alignItems: 'center',
+  },
+  applyButtonText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#FFFFFF',
+  },
+  // Date Picker Modal Styles
+  datePickerModal: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  datePickerContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  datePickerTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  datePickerDone: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: APP_CONFIG.primaryColor,
   },
 });

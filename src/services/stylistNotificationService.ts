@@ -394,4 +394,202 @@ export class StylistNotificationService {
       throw error;
     }
   }
+
+  // Notify stylist of new walk-in client
+  static async notifyOfWalkInClient(data: {
+    stylistId: string;
+    stylistEmail: string;
+    stylistName: string;
+    clientName: string;
+    services: Array<{ serviceName: string; servicePrice: number }>;
+    totalAmount: number;
+  }): Promise<void> {
+    try {
+      console.log('📬 Sending walk-in client notifications to stylist:', data.stylistName);
+
+      const serviceText = data.services.length > 1 
+        ? `${data.services.length} services` 
+        : data.services[0]?.serviceName || 'service';
+
+      const serviceList = data.services.map(s => s.serviceName).join(', ');
+
+      // 1. Send local push notification
+      await PushNotificationService.sendLocalNotification({
+        title: 'New Walk-in Client',
+        body: `${data.clientName} is here for ${serviceText}. Total: ₱${data.totalAmount.toFixed(2)}`,
+        data: {
+          type: 'walk_in_client',
+          clientName: data.clientName,
+          services: data.services,
+          totalAmount: data.totalAmount,
+        }
+      });
+
+      // 2. Send remote push notification
+      try {
+        const stylistDoc = await getDoc(doc(db, 'users', data.stylistId));
+        if (stylistDoc.exists()) {
+          const stylistData = stylistDoc.data();
+          const pushToken = stylistData['pushToken'];
+          
+          if (pushToken) {
+            await PushNotificationService.sendRemotePushNotification(
+              pushToken,
+              'New Walk-in Client',
+              `${data.clientName} is here for ${serviceText}. Total: ₱${data.totalAmount.toFixed(2)}`,
+              {
+                type: 'walk_in_client',
+                clientName: data.clientName,
+                services: data.services,
+                totalAmount: data.totalAmount,
+              }
+            );
+          }
+        }
+      } catch (pushError) {
+        console.error('⚠️ Failed to send remote push notification:', pushError);
+      }
+
+      // 3. Send email notification
+      await EmailNotificationService.sendEmail({
+        to_email: data.stylistEmail,
+        to_name: data.stylistName,
+        subject: 'New Walk-in Client',
+        message: `
+          <h2>New Walk-in Client</h2>
+          <p>Hi ${data.stylistName},</p>
+          <p><strong>${data.clientName}</strong> has arrived for the following services:</p>
+          <ul>
+            ${data.services.map(s => `<li>${s.serviceName} - ₱${s.servicePrice.toFixed(2)}</li>`).join('')}
+          </ul>
+          <p><strong>Total Amount:</strong> ₱${data.totalAmount.toFixed(2)}</p>
+          <p>Please prepare to serve this client.</p>
+        `
+      });
+
+      // 4. Create in-app notification
+      await NotificationService.createNotification({
+        recipientId: data.stylistId,
+        recipientRole: 'stylist',
+        type: 'walk_in_client',
+        title: 'New Walk-in Client',
+        message: `${data.clientName} is here for ${serviceList}. Total: ₱${data.totalAmount.toFixed(2)}`,
+        data: {
+          clientName: data.clientName,
+          services: data.services,
+          totalAmount: data.totalAmount,
+        },
+      });
+
+      console.log('✅ All walk-in client notifications sent successfully');
+    } catch (error) {
+      console.error('❌ Error sending walk-in client notifications:', error);
+      throw error;
+    }
+  }
+
+  // Notify stylist when transaction is paid
+  static async notifyOfTransactionPaid(data: {
+    stylistId: string;
+    stylistEmail: string;
+    stylistName: string;
+    clientName: string;
+    services: Array<{ serviceName: string; servicePrice: number }>;
+    totalAmount: number;
+    commission: number;
+    paymentMethod: string;
+    transactionId: string;
+  }): Promise<void> {
+    try {
+      console.log('📬 Sending transaction paid notifications to stylist:', data.stylistName);
+
+      const serviceText = data.services.length > 1 
+        ? `${data.services.length} services` 
+        : data.services[0]?.serviceName || 'service';
+
+      const serviceList = data.services.map(s => s.serviceName).join(', ');
+
+      // 1. Send local push notification
+      await PushNotificationService.sendLocalNotification({
+        title: 'Payment Received',
+        body: `${data.clientName} paid ₱${data.totalAmount.toFixed(2)}. Your commission: ₱${data.commission.toFixed(2)}`,
+        data: {
+          type: 'transaction_paid',
+          clientName: data.clientName,
+          services: data.services,
+          totalAmount: data.totalAmount,
+          commission: data.commission,
+        }
+      });
+
+      // 2. Send remote push notification
+      try {
+        const stylistDoc = await getDoc(doc(db, 'users', data.stylistId));
+        if (stylistDoc.exists()) {
+          const stylistData = stylistDoc.data();
+          const pushToken = stylistData['pushToken'];
+          
+          if (pushToken) {
+            await PushNotificationService.sendRemotePushNotification(
+              pushToken,
+              'Payment Received',
+              `${data.clientName} paid ₱${data.totalAmount.toFixed(2)} for ${serviceText}. Your commission: ₱${data.commission.toFixed(2)}`,
+              {
+                type: 'transaction_paid',
+                clientName: data.clientName,
+                services: data.services,
+                totalAmount: data.totalAmount,
+                commission: data.commission,
+                paymentMethod: data.paymentMethod,
+                transactionId: data.transactionId,
+              }
+            );
+          }
+        }
+      } catch (pushError) {
+        console.error('⚠️ Failed to send remote push notification:', pushError);
+      }
+
+      // 3. Send email notification
+      await EmailNotificationService.sendEmail({
+        to_email: data.stylistEmail,
+        to_name: data.stylistName,
+        subject: 'Payment Received',
+        message: `
+          <h2>Payment Received</h2>
+          <p>Hi ${data.stylistName},</p>
+          <p><strong>${data.clientName}</strong> has completed payment for:</p>
+          <ul>
+            ${data.services.map(s => `<li>${s.serviceName} - ₱${s.servicePrice.toFixed(2)}</li>`).join('')}
+          </ul>
+          <p><strong>Total Amount:</strong> ₱${data.totalAmount.toFixed(2)}</p>
+          <p><strong>Payment Method:</strong> ${data.paymentMethod}</p>
+          <p><strong>Your Commission (60%):</strong> ₱${data.commission.toFixed(2)}</p>
+          <p>Transaction ID: ${data.transactionId}</p>
+        `
+      });
+
+      // 4. Create in-app notification
+      await NotificationService.createNotification({
+        recipientId: data.stylistId,
+        recipientRole: 'stylist',
+        type: 'transaction_paid',
+        title: 'Payment Received',
+        message: `${data.clientName} paid ₱${data.totalAmount.toFixed(2)} for ${serviceList}. Your commission: ₱${data.commission.toFixed(2)}`,
+        data: {
+          clientName: data.clientName,
+          services: data.services,
+          totalAmount: data.totalAmount,
+          commission: data.commission,
+          paymentMethod: data.paymentMethod,
+          transactionId: data.transactionId,
+        },
+      });
+
+      console.log('✅ All transaction paid notifications sent successfully');
+    } catch (error) {
+      console.error('❌ Error sending transaction paid notifications:', error);
+      throw error;
+    }
+  }
 }

@@ -7,9 +7,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  Modal,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { Calendar } from 'react-native-calendars';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../config/firebase';
 import { useAuth } from '../../hooks/redux';
@@ -26,6 +28,7 @@ import { APP_CONFIG, FONTS } from '../../constants';
 
 interface Transaction {
   id: string;
+  transactionId: string;
   type: 'service' | 'product';
   clientName: string;
   description: string;
@@ -45,22 +48,27 @@ interface EarningsSummary {
 
 export default function StylistEarningsScreen() {
   const { user } = useAuth();
+  const navigation = useNavigation();
   const scrollViewRef = useRef<ScrollView>(null);
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [selectedView, setSelectedView] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc' | 'type'>('date-desc');
+  const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'time-desc' | 'time-asc' | 'amount-desc' | 'amount-asc' | 'type'>('date-desc');
   const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
 
-  // Reset to page 1 when view, search, or sort changes
+  // Reset to page 1 when search or sort changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedView, searchQuery, sortBy]);
+  }, [searchQuery, sortBy, startDate, endDate]);
   const [summary, setSummary] = useState<EarningsSummary>({
     serviceRevenue: 0,
     productCommission: 0,
@@ -91,10 +99,11 @@ export default function StylistEarningsScreen() {
       fullUser: user
     });
 
-    // Fetch from transactions collection
+    // Fetch from transactions collection - only paid transactions
     const transactionsRef = collection(db, 'transactions');
+    const paidTransactionsQuery = query(transactionsRef, where('status', '==', 'paid'));
 
-    const unsubscribe = onSnapshot(transactionsRef, async (querySnapshot) => {
+    const unsubscribe = onSnapshot(paidTransactionsQuery, async (querySnapshot) => {
       try {
         console.log('📡 Real-time earnings update received:', querySnapshot.size, 'total transactions');
         const fetchedTransactions: Transaction[] = [];
@@ -126,8 +135,8 @@ export default function StylistEarningsScreen() {
                   : '';
 
                 // Calculate commission (60% of service total)
-                const serviceTotal = service.total || service.adjustedPrice || 0;
-                const commission = serviceTotal * 0.6;
+                const serviceTotal = Number(service.adjustedPrice) || 0;
+                const commission = Number((serviceTotal * 0.6).toFixed(2));
 
                 console.log('✅ Adding service to earnings:', {
                   clientName: data['clientInfo']?.name,
@@ -139,6 +148,7 @@ export default function StylistEarningsScreen() {
 
                 fetchedTransactions.push({
                   id: doc.id + '_' + service.serviceId, // Unique ID for each service
+                  transactionId: doc.id, // Original transaction ID for navigation
                   type: 'service',
                   clientName: data['clientInfo']?.name || 'Unknown Client',
                   description: service.serviceName || 'Service',
@@ -171,14 +181,15 @@ export default function StylistEarningsScreen() {
                   : '';
 
                 // Product commission (10% of product total)
-                const productTotal = product.total || 0;
-                const commission = productTotal * 0.1;
+                const productTotal = Number((Number(product.price) || 0) * (Number(product.quantity) || 1));
+                const commission = Number((productTotal * 0.1).toFixed(2));
 
                 fetchedTransactions.push({
-                  id: doc.id + '_' + product.productId,
+                  id: doc.id + '_' + (product.id || product.productId),
+                  transactionId: doc.id, // Original transaction ID for navigation
                   type: 'product',
                   clientName: data['clientInfo']?.name || 'Unknown Client',
-                  description: `${product.productName} (x${product.quantity})`,
+                  description: `${product.name || product.productName} (x${product.quantity})`,
                   amount: productTotal,
                   commission: commission,
                   date: transactionDate,
@@ -223,45 +234,14 @@ export default function StylistEarningsScreen() {
     };
   }, [user?.uid, user?.id]);
 
-  // Filter transactions and calculate summary based on selected view
+  // Calculate summary from all transactions
   useEffect(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    let filtered = transactions;
-
-    if (selectedView === 'daily') {
-      filtered = transactions.filter(txn => {
-        const txnDate = new Date(txn.date);
-        txnDate.setHours(0, 0, 0, 0);
-        return txnDate.getTime() === today.getTime();
-      });
-    } else if (selectedView === 'weekly') {
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - today.getDay());
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-
-      filtered = transactions.filter(txn => {
-        const txnDate = new Date(txn.date);
-        return txnDate >= weekStart && txnDate <= weekEnd;
-      });
-    } else if (selectedView === 'monthly') {
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-
-      filtered = transactions.filter(txn => {
-        const txnDate = new Date(txn.date);
-        return txnDate >= monthStart && txnDate <= monthEnd;
-      });
-    }
-
     // Calculate summary
-    const serviceRevenue = filtered
+    const serviceRevenue = transactions
       .filter(txn => txn.type === 'service')
       .reduce((sum, txn) => sum + txn.commission, 0);
 
-    const productCommission = filtered
+    const productCommission = transactions
       .filter(txn => txn.type === 'product')
       .reduce((sum, txn) => sum + txn.commission, 0);
 
@@ -269,43 +249,13 @@ export default function StylistEarningsScreen() {
       serviceRevenue,
       productCommission,
       totalEarnings: serviceRevenue + productCommission,
-      transactionCount: filtered.length,
+      transactionCount: transactions.length,
     });
-  }, [transactions, selectedView]);
+  }, [transactions]);
 
   // Filter and sort transactions for display
   const getFilteredTransactions = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     let filtered = transactions;
-
-    // Filter by time period
-    if (selectedView === 'daily') {
-      filtered = transactions.filter(txn => {
-        const txnDate = new Date(txn.date);
-        txnDate.setHours(0, 0, 0, 0);
-        return txnDate.getTime() === today.getTime();
-      });
-    } else if (selectedView === 'weekly') {
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - today.getDay());
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-
-      filtered = transactions.filter(txn => {
-        const txnDate = new Date(txn.date);
-        return txnDate >= weekStart && txnDate <= weekEnd;
-      });
-    } else if (selectedView === 'monthly') {
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-
-      filtered = transactions.filter(txn => {
-        const txnDate = new Date(txn.date);
-        return txnDate >= monthStart && txnDate <= monthEnd;
-      });
-    }
 
     // Filter by search query
     if (searchQuery) {
@@ -317,12 +267,41 @@ export default function StylistEarningsScreen() {
       );
     }
 
+    // Filter by date range
+    if (startDate || endDate) {
+      filtered = filtered.filter(txn => {
+        const transactionDate = new Date(txn.date);
+        transactionDate.setHours(0, 0, 0, 0);
+        
+        if (startDate && endDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          return transactionDate >= start && transactionDate <= end;
+        } else if (startDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          return transactionDate >= start;
+        } else if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          return transactionDate <= end;
+        }
+        return true;
+      });
+    }
+
     // Sort transactions
     filtered = [...filtered].sort((a, b) => {
       switch (sortBy) {
         case 'date-desc':
-          return new Date(b.date + ' ' + b.time).getTime() - new Date(a.date + ' ' + a.time).getTime();
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
         case 'date-asc':
+          return new Date(a.date).getTime() - new Date(b.date).getTime();
+        case 'time-desc':
+          return new Date(b.date + ' ' + b.time).getTime() - new Date(a.date + ' ' + a.time).getTime();
+        case 'time-asc':
           return new Date(a.date + ' ' + a.time).getTime() - new Date(b.date + ' ' + b.time).getTime();
         case 'amount-desc':
           return b.commission - a.commission;
@@ -370,7 +349,7 @@ export default function StylistEarningsScreen() {
   };
 
   return (
-    <ScreenWrapper title="My Earnings" userType="stylist">
+    <ScreenWrapper title="My Earnings" userType="stylist" showBackButton={true}>
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Search and Sort */}
         <StylistSection>
@@ -383,6 +362,23 @@ export default function StylistEarningsScreen() {
               />
             </View>
             <View style={styles.sortButtons}>
+              {/* Calendar Button */}
+              <TouchableOpacity
+                style={[
+                  styles.sortButton, 
+                  (showDateRangePicker || startDate || endDate) && styles.sortButtonActive
+                ]}
+                onPress={() => setShowDateRangePicker(!showDateRangePicker)}
+              >
+                <Ionicons 
+                  name={(startDate || endDate) ? "calendar" : "calendar-outline"} 
+                  size={18} 
+                  color={(showDateRangePicker || startDate || endDate) ? '#FFFFFF' : '#6B7280'} 
+                />
+                {(startDate || endDate) && !showDateRangePicker && (
+                  <View style={styles.dateIndicatorDot} />
+                )}
+              </TouchableOpacity>
               {/* Sort Dropdown Button */}
               <View style={styles.sortContainer}>
                 <TouchableOpacity 
@@ -434,6 +430,46 @@ export default function StylistEarningsScreen() {
                         Date (Oldest First)
                       </Text>
                       {sortBy === 'date-asc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'time-desc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('time-desc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="time-outline" 
+                        size={18} 
+                        color={sortBy === 'time-desc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'time-desc' && styles.sortDropdownTextActive]}>
+                        Time (Latest First)
+                      </Text>
+                      {sortBy === 'time-desc' && (
+                        <Ionicons name="checkmark" size={18} color="#160B53" />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.sortDropdownItem, sortBy === 'time-asc' && styles.sortDropdownItemActive]}
+                      onPress={() => {
+                        setSortBy('time-asc');
+                        setSortDropdownVisible(false);
+                      }}
+                    >
+                      <Ionicons 
+                        name="time-outline" 
+                        size={18} 
+                        color={sortBy === 'time-asc' ? '#160B53' : '#6B7280'} 
+                      />
+                      <Text style={[styles.sortDropdownText, sortBy === 'time-asc' && styles.sortDropdownTextActive]}>
+                        Time (Earliest First)
+                      </Text>
+                      {sortBy === 'time-asc' && (
                         <Ionicons name="checkmark" size={18} color="#160B53" />
                       )}
                     </TouchableOpacity>
@@ -504,28 +540,62 @@ export default function StylistEarningsScreen() {
           </View>
         </StylistSection>
 
-        {/* View Filter Tabs */}
-        <StylistSection>
-          <View style={styles.filterRow}>
-            <StylistFilterTab
-              label="Daily"
-              isActive={selectedView === 'daily'}
-              onPress={() => setSelectedView('daily')}
-            />
-            <StylistFilterTab
-              label="Weekly"
-              isActive={selectedView === 'weekly'}
-              onPress={() => setSelectedView('weekly')}
-            />
-            <StylistFilterTab
-              label="Monthly"
-              isActive={selectedView === 'monthly'}
-              onPress={() => setSelectedView('monthly')}
-            />
-          </View>
-        </StylistSection>
+        {/* Date Range Picker */}
+        {showDateRangePicker && (
+          <StylistSection>
+            <View style={styles.dateRangeCard}>
+              <Text style={styles.dateRangeTitle}>Transaction Date Range</Text>
+              
+              <View style={styles.dateRangeInputs}>
+                <View style={styles.dateInputContainer}>
+                  <Text style={styles.dateInputLabel}>Start Date</Text>
+                  <TouchableOpacity 
+                    style={styles.dateInput}
+                    onPress={() => setShowStartDatePicker(true)}
+                  >
+                    <Text style={[styles.dateInputText, startDate && { color: '#160B53' }]}>
+                      {startDate ? startDate.toLocaleDateString('en-US') : 'mm/dd/yyyy'}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
 
-        {/* Summary Cards */}
+                <View style={styles.dateInputContainer}>
+                  <Text style={styles.dateInputLabel}>End Date</Text>
+                  <TouchableOpacity 
+                    style={styles.dateInput}
+                    onPress={() => setShowEndDatePicker(true)}
+                  >
+                    <Text style={[styles.dateInputText, endDate && { color: '#160B53' }]}>
+                      {endDate ? endDate.toLocaleDateString('en-US') : 'mm/dd/yyyy'}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.dateRangeActions}>
+                <TouchableOpacity 
+                  style={styles.clearButton}
+                  onPress={() => {
+                    setStartDate(null);
+                    setEndDate(null);
+                  }}
+                >
+                  <Text style={styles.clearButtonText}>Clear</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.applyButton}
+                  onPress={() => setShowDateRangePicker(false)}
+                >
+                  <Text style={styles.applyButtonText}>Apply</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </StylistSection>
+        )}
+
+        {/* Search and Sort */}
         <StylistSection>
           <View style={styles.summaryGrid}>
             <View style={styles.summaryCard}>
@@ -533,7 +603,7 @@ export default function StylistEarningsScreen() {
                 <Ionicons name="cut" size={24} color="#4A90E2" />
               </View>
               <Text style={styles.summaryLabel}>Service Revenue</Text>
-              <Text style={styles.summaryAmount}>₱{summary.serviceRevenue.toFixed(2)}</Text>
+              <Text style={styles.summaryAmount}>₱{(Number(summary.serviceRevenue) || 0).toFixed(2)}</Text>
             </View>
 
             <View style={styles.summaryCard}>
@@ -541,7 +611,7 @@ export default function StylistEarningsScreen() {
                 <Ionicons name="cart" size={24} color="#F59E0B" />
               </View>
               <Text style={styles.summaryLabel}>Product Commission</Text>
-              <Text style={styles.summaryAmount}>₱{summary.productCommission.toFixed(2)}</Text>
+              <Text style={styles.summaryAmount}>₱{(Number(summary.productCommission) || 0).toFixed(2)}</Text>
             </View>
           </View>
 
@@ -550,8 +620,8 @@ export default function StylistEarningsScreen() {
               <Ionicons name="wallet" size={28} color="#FFFFFF" />
               <Text style={styles.totalLabel}>Total Earnings</Text>
             </View>
-            <Text style={styles.totalAmount}>₱{summary.totalEarnings.toFixed(2)}</Text>
-            <Text style={styles.totalSubtext}>{summary.transactionCount} transactions</Text>
+            <Text style={styles.totalAmount}>₱{(Number(summary.totalEarnings) || 0).toFixed(2)}</Text>
+            <Text style={styles.totalSubtext}>{Number(summary.transactionCount) || 0} transactions</Text>
           </View>
         </StylistSection>
 
@@ -571,11 +641,7 @@ export default function StylistEarningsScreen() {
               </View>
               <Text style={styles.emptyStateTitle}>No Earnings Yet</Text>
               <Text style={styles.emptyStateText}>
-                {selectedView === 'daily' 
-                  ? 'No completed services today. Keep up the great work!'
-                  : selectedView === 'weekly'
-                    ? 'No completed services this week. Your earnings will appear here after completing appointments.'
-                    : 'No completed services this month. Complete appointments to start earning!'}
+                Your earnings will appear here after completing appointments. Keep up the great work!
               </Text>
               <View style={styles.emptyStateHint}>
                 <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
@@ -587,7 +653,14 @@ export default function StylistEarningsScreen() {
           ) : (
             <>
             {paginatedTransactions.map((transaction) => (
-              <View key={transaction.id} style={styles.transactionCard}>
+              <TouchableOpacity 
+                key={transaction.id} 
+                style={styles.transactionCard}
+                activeOpacity={0.7}
+                onPress={() => (navigation as any).navigate('StylistTransactionDetails', { 
+                  client: { id: transaction.transactionId } 
+                })}
+              >
                 <View style={styles.transactionLeft}>
                   <View style={[
                     styles.transactionIcon,
@@ -597,8 +670,8 @@ export default function StylistEarningsScreen() {
                   ]}>
                     <Ionicons 
                       name={transaction.type === 'service' ? 'cut' : 'cart'} 
-                      size={20} 
-                      color="#FFFFFF" 
+                      size={24} 
+                      color={transaction.type === 'service' ? '#4A90E2' : '#F59E0B'} 
                     />
                   </View>
                   <View style={styles.transactionDetails}>
@@ -613,12 +686,12 @@ export default function StylistEarningsScreen() {
                   </View>
                 </View>
                 <View style={styles.transactionRight}>
-                  <Text style={styles.transactionAmount}>₱{transaction.amount.toFixed(2)}</Text>
+                  <Text style={styles.transactionAmount}>₱{(Number(transaction.amount) || 0).toFixed(2)}</Text>
                   <Text style={styles.commissionAmount}>
-                    Your share: ₱{transaction.commission.toFixed(2)}
+                    Your share: ₱{(Number(transaction.commission) || 0).toFixed(2)}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
             <StylistPagination
               currentPage={currentPage}
@@ -632,6 +705,81 @@ export default function StylistEarningsScreen() {
           )}
         </StylistSection>
       </ScrollView>
+
+      {/* Date Pickers */}
+      <Modal
+        visible={showStartDatePicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowStartDatePicker(false)}
+      >
+        <View style={styles.datePickerModal}>
+          <View style={styles.datePickerContainer}>
+            <View style={styles.datePickerHeader}>
+              <Text style={styles.datePickerTitle}>Select Start Date</Text>
+              <TouchableOpacity onPress={() => setShowStartDatePicker(false)}>
+                <Text style={styles.datePickerDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <Calendar
+              current={startDate ? startDate.toISOString().split('T')[0] : undefined}
+              onDayPress={(day) => {
+                setStartDate(new Date(day.dateString));
+                setShowStartDatePicker(false);
+              }}
+              markedDates={startDate ? {
+                [startDate.toISOString().split('T')[0]]: {
+                  selected: true,
+                  selectedColor: APP_CONFIG.primaryColor,
+                }
+              } : {}}
+              theme={{
+                todayTextColor: APP_CONFIG.primaryColor,
+                selectedDayBackgroundColor: APP_CONFIG.primaryColor,
+                selectedDayTextColor: '#FFFFFF',
+                arrowColor: APP_CONFIG.primaryColor,
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showEndDatePicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowEndDatePicker(false)}
+      >
+        <View style={styles.datePickerModal}>
+          <View style={styles.datePickerContainer}>
+            <View style={styles.datePickerHeader}>
+              <Text style={styles.datePickerTitle}>Select End Date</Text>
+              <TouchableOpacity onPress={() => setShowEndDatePicker(false)}>
+                <Text style={styles.datePickerDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <Calendar
+              current={endDate ? endDate.toISOString().split('T')[0] : undefined}
+              onDayPress={(day) => {
+                setEndDate(new Date(day.dateString));
+                setShowEndDatePicker(false);
+              }}
+              markedDates={endDate ? {
+                [endDate.toISOString().split('T')[0]]: {
+                  selected: true,
+                  selectedColor: APP_CONFIG.primaryColor,
+                }
+              } : {}}
+              theme={{
+                todayTextColor: APP_CONFIG.primaryColor,
+                selectedDayBackgroundColor: APP_CONFIG.primaryColor,
+                selectedDayTextColor: '#FFFFFF',
+                arrowColor: APP_CONFIG.primaryColor,
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenWrapper>
   );
 }
@@ -801,70 +949,73 @@ const styles = StyleSheet.create({
   transactionCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
     padding: 16,
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   transactionLeft: {
     flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
     gap: 12,
   },
   transactionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   serviceIcon: {
-    backgroundColor: '#4A90E2',
+    backgroundColor: '#E3F2FD',
   },
   productIcon: {
-    backgroundColor: '#F59E0B',
+    backgroundColor: '#FEF3C7',
   },
   transactionDetails: {
     flex: 1,
   },
   clientName: {
-    fontSize: 16,
+    fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
     fontFamily: FONTS.semiBold,
-    color: '#111827',
-    marginBottom: 2,
+    color: '#160B53',
+    marginBottom: 4,
   },
   transactionDescription: {
-    fontSize: 14,
+    fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
     fontFamily: FONTS.regular,
-    color: '#6B7280',
+    color: '#666',
     marginBottom: 4,
   },
   transactionMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    marginTop: 4,
   },
   transactionDate: {
-    fontSize: 12,
+    fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
     fontFamily: FONTS.regular,
-    color: '#6B7280',
+    color: '#666',
+    marginLeft: 4,
   },
   transactionRight: {
     alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   transactionAmount: {
-    fontSize: 16,
+    fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
     fontFamily: FONTS.bold,
-    color: '#111827',
-    marginBottom: 2,
+    color: '#160B53',
+    marginBottom: 4,
   },
   commissionAmount: {
-    fontSize: 12,
+    fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
     fontFamily: FONTS.medium,
     color: '#10B981',
   },
@@ -912,5 +1063,118 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     fontFamily: FONTS.medium,
+  },
+  // Date Range Picker Styles
+  dateIndicatorDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+  },
+  dateRangeCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  dateRangeTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+    marginBottom: 16,
+  },
+  dateRangeInputs: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  dateInputContainer: {
+    flex: 1,
+  },
+  dateInputLabel: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  dateInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  dateInputText: {
+    fontSize: 14,
+    fontFamily: FONTS.regular,
+    color: '#6B7280',
+  },
+  dateRangeActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  clearButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  clearButtonText: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#6B7280',
+  },
+  applyButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: APP_CONFIG.primaryColor,
+    alignItems: 'center',
+  },
+  applyButtonText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#FFFFFF',
+  },
+  // Date Picker Modal Styles
+  datePickerModal: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  datePickerContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  datePickerTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  datePickerDone: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: APP_CONFIG.primaryColor,
   },
 });

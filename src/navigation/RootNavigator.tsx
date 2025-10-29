@@ -15,11 +15,13 @@ import BookingNavigator from './client/BookingNavigator';
 import NotificationsScreen from '../screens/client/NotificationsScreen';
 import StylistNotificationsScreen from '../screens/stylist/StylistNotificationsScreen';
 import StylistTransactionDetailsScreen from '../screens/stylist/StylistTransactionDetailsScreen';
-import StylistServiceHistoryScreen from '../screens/stylist/StylistServiceHistoryScreen';
+import StylistServicesScreen from '../screens/stylist/StylistServicesScreen';
 import StylistPortfolioScreen from '../screens/stylist/StylistPortfolioScreen';
+import StylistEarningsScreen from '../screens/stylist/StylistEarningsScreen';
 import StylistProfileScreen from '../screens/stylist/StylistProfileScreen';
 import StylistEditProfileScreen from '../screens/stylist/StylistEditProfileScreen';
 import StylistChangePasswordScreen from '../screens/stylist/StylistChangePasswordScreen';
+import StylistNotificationSettingsScreen from '../screens/stylist/StylistNotificationSettingsScreen';
 import SettingsScreen from '../screens/shared/SettingsScreen';
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -91,10 +93,12 @@ export default function RootNavigator({ isOnboardingComplete, isLoggedIn, userTy
         <Stack.Screen name="StylistNotifications" component={StylistNotificationsScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="StylistProfile" component={StylistProfileScreen} />
-        <Stack.Screen name="StylistServiceHistory" component={StylistServiceHistoryScreen} />
+        <Stack.Screen name="StylistServiceHistory" component={StylistServicesScreen} />
         <Stack.Screen name="StylistPortfolio" component={StylistPortfolioScreen} />
+        <Stack.Screen name="StylistEarnings" component={StylistEarningsScreen} />
         <Stack.Screen name="StylistEditProfile" component={StylistEditProfileScreen} />
         <Stack.Screen name="StylistChangePassword" component={StylistChangePasswordScreen} />
+        <Stack.Screen name="StylistNotificationSettings" component={StylistNotificationSettingsScreen} />
         <Stack.Screen name="StylistTransactionDetails" component={StylistTransactionDetailsScreen} />
       </Stack.Navigator>
     </NavigationContainer>

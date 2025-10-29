@@ -11,9 +11,9 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { Calendar } from 'react-native-calendars';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import {
   StylistSection,
@@ -28,6 +28,8 @@ import { APP_CONFIG, FONTS } from '../../constants';
 import { AppointmentService } from '../../services/appointmentService';
 import { useAuth } from '../../hooks/redux';
 import { Appointment } from '../../types';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 const { width } = Dimensions.get('window');
 const isIPhone = Platform.OS === 'ios';
@@ -53,10 +55,11 @@ export default function StylistAppointmentsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [sortBy, setSortBy] = useState<'time-asc' | 'time-desc' | 'client-asc' | 'client-desc' | 'status'>('time-asc');
   const [sortDropdownVisible, setSortDropdownVisible] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null); // null = no date filter
-  const [showCalendar, setShowCalendar] = useState(false);
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [calendarDates, setCalendarDates] = useState<Date[]>([]);
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -65,42 +68,9 @@ export default function StylistAppointmentsScreen() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedFilter, searchQuery, selectedDate]);
+  }, [selectedFilter, searchQuery, startDate, endDate]);
 
-  const filterOptions = ['Today', 'Upcoming', 'Confirmed', 'Completed', 'Cancelled'];
-
-  // Generate calendar dates for the current month
-  useEffect(() => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const firstDayOfWeek = firstDay.getDay();
-    
-    const dates: Date[] = [];
-    
-    // Add trailing days from previous month
-    for (let i = firstDayOfWeek - 1; i >= 0; i--) {
-      const date = new Date(year, month, -i);
-      dates.push(date);
-    }
-    
-    // Add all days of current month
-    for (let day = 1; day <= lastDay.getDate(); day++) {
-      dates.push(new Date(year, month, day));
-    }
-    
-    // Add leading days from next month to complete the grid
-    const remainingDays = 7 - (dates.length % 7);
-    if (remainingDays < 7) {
-      for (let day = 1; day <= remainingDays; day++) {
-        dates.push(new Date(year, month + 1, day));
-      }
-    }
-    
-    setCalendarDates(dates);
-  }, [currentMonth]);
+  const filterOptions = ['Today', 'Upcoming', 'Confirmed', 'In Service', 'Completed', 'Cancelled'];
 
   // Set up real-time subscription for appointments
   useEffect(() => {
@@ -133,6 +103,7 @@ export default function StylistAppointmentsScreen() {
     };
   }, [user?.uid]);
 
+
   // Calculate stats for summary card
   const todayAppointments = appointments.filter(apt => {
     const aptDate = new Date(apt.appointmentDate || apt.date);
@@ -156,7 +127,8 @@ export default function StylistAppointmentsScreen() {
       })[0],
   };
 
-  const filteredAppointments = appointments.filter(appointment => {
+  const filteredAppointments = appointments.filter((appointment: any) => {
+    // Appointment filtering logic
     // Use real Firebase data fields with type casting
     const apt = appointment as any;
     const clientName = apt.clientName || 
@@ -174,14 +146,27 @@ export default function StylistAppointmentsScreen() {
     const matchesSearch = clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          serviceNames.toLowerCase().includes(searchQuery.toLowerCase());
     
-    // 1. Filter by selected date (if date picker is used)
+    // 1. Filter by date range (if date range is set)
     let matchesDate = true;
-    if (selectedDate) {
+    if (startDate || endDate) {
       const appointmentDate = new Date(apt.appointmentDate || apt.date);
       appointmentDate.setHours(0, 0, 0, 0);
-      const selectedDateNormalized = new Date(selectedDate);
-      selectedDateNormalized.setHours(0, 0, 0, 0);
-      matchesDate = appointmentDate.getTime() === selectedDateNormalized.getTime();
+      
+      if (startDate && endDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        matchesDate = appointmentDate >= start && appointmentDate <= end;
+      } else if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        matchesDate = appointmentDate >= start;
+      } else if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        matchesDate = appointmentDate <= end;
+      }
     }
     
     // 2. Filter by status (if status filter is active)
@@ -211,9 +196,17 @@ export default function StylistAppointmentsScreen() {
         // Show all appointments (except cancelled by default)
         matchesFilter = status !== 'cancelled';
         break;
+      case 'Pending':
+        // Pending shows pending/scheduled appointments
+        matchesFilter = status === 'pending' || status === 'scheduled';
+        break;
       case 'Confirmed':
         // Confirmed shows only confirmed appointments
         matchesFilter = status === 'confirmed';
+        break;
+      case 'In Service':
+        // In Service shows only in-service appointments
+        matchesFilter = status === 'in-service' || status === 'in_service' || status === 'in_progress';
         break;
       case 'Completed':
         // Completed shows only completed appointments
@@ -410,11 +403,9 @@ export default function StylistAppointmentsScreen() {
     return 'regular';
   };
 
-  // Helper function to get full client type label
+  // Helper function to get client type label
   const getFullClientTypeLabel = (type: 'X' | 'TR' | 'R') => {
-    if (type === 'X') return 'X - New Client';
-    if (type === 'TR') return 'TR - Transfer';
-    return 'R - Regular';
+    return type; // Return just the letter(s)
   };
 
   // Calendar helper functions
@@ -425,73 +416,26 @@ export default function StylistAppointmentsScreen() {
            date.getFullYear() === today.getFullYear();
   };
 
-  const isSelected = (date: Date) => {
-    if (!selectedDate) return false;
-    return date.getDate() === selectedDate.getDate() &&
-           date.getMonth() === selectedDate.getMonth() &&
-           date.getFullYear() === selectedDate.getFullYear();
+  const applyDateRange = () => {
+    setShowDateRangePicker(false);
   };
 
-  const isCurrentMonth = (date: Date) => {
-    return date.getMonth() === currentMonth.getMonth();
-  };
-
-  const hasAppointments = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
-    return appointments.some((apt: any) => {
-      const aptDate = new Date(apt.appointmentDate || apt.date);
-      return aptDate.toISOString().split('T')[0] === dateStr;
-    });
-  };
-
-  const goToPreviousMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
-  };
-
-  const goToNextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
-  };
-
-  const goToToday = () => {
-    const today = new Date();
-    setCurrentMonth(today);
-    setSelectedDate(today);
-    scrollToAppointmentList();
-  };
-
-  // Scroll to appointment list when date is selected
-  const scrollToAppointmentList = () => {
-    // Close calendar first for better UX
-    setShowCalendar(false);
-    
-    // Then scroll to the appointment list
-    setTimeout(() => {
-      // Scroll to appointment list section
-      // Using a more reliable method with onLayout measurement
-      appointmentListRef.current?.measureLayout(
-        scrollViewRef.current as any,
-        (x, y) => {
-          scrollViewRef.current?.scrollTo({ y: y - 20, animated: true });
-        },
-        () => {
-          // Fallback if measurement fails
-          scrollViewRef.current?.scrollTo({ y: 600, animated: true });
-        }
-      );
-    }, 100);
+  const clearDateRange = () => {
+    setStartDate(null);
+    setEndDate(null);
   };
 
   // Mobile-first responsive layout
   return (
     <ScreenWrapper title="Appointments" userType="stylist">
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Quick Filters */}
-        <StylistSection style={styles.filterSection}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.quickFilters}>
-              {filterOptions.map((filter: string) => {
+        {/* Quick Status Filters */}
+        <StylistSection>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickFiltersScroll}>
+            <View style={styles.quickFiltersCompact}>
+              {['Today', 'Upcoming', 'Pending', 'Confirmed', 'Completed'].map((filter: string) => {
                 const count = appointments.filter(apt => {
-                  const appointmentDate = new Date(apt.appointmentDate || apt.date);
+                  const appointmentDate = new Date((apt as any).appointmentDate || (apt as any).date);
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
                   const tomorrow = new Date(today);
@@ -508,6 +452,7 @@ export default function StylistAppointmentsScreen() {
                     return appointmentDate >= tomorrow && 
                            (status === 'scheduled' || status === 'confirmed' || status === 'pending');
                   }
+                  if (filter === 'Pending') return status === 'pending' || status === 'scheduled';
                   if (filter === 'Confirmed') return status === 'confirmed';
                   if (filter === 'Completed') return status === 'completed';
                   if (filter === 'Cancelled') return status === 'cancelled';
@@ -549,7 +494,7 @@ export default function StylistAppointmentsScreen() {
           </ScrollView>
         </StylistSection>
 
-        {/* Search and Sort */}
+        {/* Search Bar with Action Buttons */}
         <StylistSection>
           <View style={styles.searchSortRow}>
             <View style={styles.searchBarContainer}>
@@ -563,16 +508,16 @@ export default function StylistAppointmentsScreen() {
               <TouchableOpacity
                 style={[
                   styles.sortButton, 
-                  (showCalendar || selectedDate) && styles.sortButtonActive
+                  (showDateRangePicker || startDate || endDate) && styles.sortButtonActive
                 ]}
-                onPress={() => setShowCalendar(!showCalendar)}
+                onPress={() => setShowDateRangePicker(!showDateRangePicker)}
               >
                 <Ionicons 
-                  name={selectedDate ? "calendar" : "calendar-outline"} 
+                  name={(startDate || endDate) ? "calendar" : "calendar-outline"} 
                   size={18} 
-                  color={(showCalendar || selectedDate) ? '#FFFFFF' : '#6B7280'} 
+                  color={(showDateRangePicker || startDate || endDate) ? '#FFFFFF' : '#6B7280'} 
                 />
-                {selectedDate && !showCalendar && (
+                {(startDate || endDate) && !showDateRangePicker && (
                   <View style={styles.dateIndicatorDot} />
                 )}
               </TouchableOpacity>
@@ -697,75 +642,53 @@ export default function StylistAppointmentsScreen() {
           </View>
         </StylistSection>
 
-        {/* Calendar View */}
-        {showCalendar && (
+        {/* Date Range Picker */}
+        {showDateRangePicker && (
           <StylistSection>
-            <View style={styles.calendarCard}>
-              {/* Month Navigation */}
-              <View style={styles.monthHeader}>
-                <TouchableOpacity onPress={goToPreviousMonth} style={styles.monthNavButton}>
-                  <Ionicons name="chevron-back" size={24} color="#160B53" />
-                </TouchableOpacity>
-                <View style={styles.monthTitleContainer}>
-                  <Text style={styles.monthTitle}>
-                    {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                  </Text>
-                  <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
-                    <Text style={styles.todayButtonText}>Today</Text>
+            <View style={styles.dateRangeCard}>
+              <Text style={styles.dateRangeTitle}>Appointment Date Range</Text>
+              
+              <View style={styles.dateRangeInputs}>
+                <View style={styles.dateInputContainer}>
+                  <Text style={styles.dateInputLabel}>Start Date</Text>
+                  <TouchableOpacity 
+                    style={styles.dateInput}
+                    onPress={() => setShowStartDatePicker(true)}
+                  >
+                    <Text style={[styles.dateInputText, startDate && { color: '#160B53' }]}>
+                      {startDate ? startDate.toLocaleDateString('en-US') : 'mm/dd/yyyy'}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={18} color="#6B7280" />
                   </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={goToNextMonth} style={styles.monthNavButton}>
-                  <Ionicons name="chevron-forward" size={24} color="#160B53" />
+
+                <View style={styles.dateInputContainer}>
+                  <Text style={styles.dateInputLabel}>End Date</Text>
+                  <TouchableOpacity 
+                    style={styles.dateInput}
+                    onPress={() => setShowEndDatePicker(true)}
+                  >
+                    <Text style={[styles.dateInputText, endDate && { color: '#160B53' }]}>
+                      {endDate ? endDate.toLocaleDateString('en-US') : 'mm/dd/yyyy'}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.dateRangeActions}>
+                <TouchableOpacity 
+                  style={styles.clearButton}
+                  onPress={clearDateRange}
+                >
+                  <Text style={styles.clearButtonText}>Clear</Text>
                 </TouchableOpacity>
-              </View>
-
-              {/* Week Day Headers */}
-              <View style={styles.weekDaysRow}>
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                  <View key={day} style={styles.weekDayCell}>
-                    <Text style={styles.weekDayText}>{day}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Calendar Grid */}
-              <View style={styles.calendarGrid}>
-                {calendarDates.map((date, index) => {
-                  const dateHasAppointments = hasAppointments(date);
-                  const dateIsToday = isToday(date);
-                  const dateIsSelected = isSelected(date);
-                  const dateIsCurrentMonth = isCurrentMonth(date);
-
-                  return (
-                    <TouchableOpacity
-                      key={index}
-                      style={[
-                        styles.dateCell,
-                        dateIsToday && styles.dateCellToday,
-                        dateIsSelected && styles.dateCellSelected,
-                      ]}
-                      onPress={() => {
-                        setSelectedDate(date);
-                        scrollToAppointmentList();
-                      }}
-                    >
-                      <Text style={[
-                        styles.dateText,
-                        !dateIsCurrentMonth && styles.dateTextOtherMonth,
-                        dateIsToday && styles.dateTextToday,
-                        dateIsSelected && styles.dateTextSelected,
-                      ]}>
-                        {date.getDate()}
-                      </Text>
-                      {dateHasAppointments && (
-                        <View style={[
-                          styles.appointmentDot,
-                          dateIsSelected && styles.appointmentDotSelected
-                        ]} />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
+                <TouchableOpacity 
+                  style={styles.applyButton}
+                  onPress={applyDateRange}
+                >
+                  <Text style={styles.applyButtonText}>Apply</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </StylistSection>
@@ -776,25 +699,14 @@ export default function StylistAppointmentsScreen() {
           <View ref={appointmentListRef} collapsable={false}>
           {/* Section Header with Count */}
           <View style={styles.listHeader}>
-            <View style={styles.listTitleContainer}>
-              <Text style={styles.listTitle}>
-                {selectedDate 
-                  ? `Appointments on ${selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                  : selectedFilter === 'Today' 
-                    ? "Today's Appointments"
-                    : `${selectedFilter} Appointments`
-                }
-              </Text>
-              {selectedDate && (
-                <TouchableOpacity 
-                  style={styles.clearDateButton}
-                  onPress={() => setSelectedDate(null)}
-                >
-                  <Ionicons name="close-circle" size={16} color="#6B7280" />
-                  <Text style={styles.clearDateText}>Clear date</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            <Text style={styles.listTitle}>
+              {(startDate || endDate)
+                ? `Appointments ${startDate ? 'from ' + startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}${startDate && endDate ? ' ' : ''}${endDate ? 'to ' + endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}`
+                : selectedFilter === 'Today' 
+                  ? "Today's Appointments"
+                  : `${selectedFilter} Appointments`
+              }
+            </Text>
             <View style={styles.countBadge}>
               <Text style={styles.countText}>{filteredAppointments.length}</Text>
             </View>
@@ -810,25 +722,27 @@ export default function StylistAppointmentsScreen() {
               <Ionicons name="calendar-outline" size={64} color="#D1D5DB" />
               <Text style={styles.emptyStateTitle}>No Appointments Found</Text>
               <Text style={styles.emptyStateText}>
-                {selectedDate 
-                  ? `No appointments scheduled for ${selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}.`
+                {(startDate || endDate)
+                  ? `No appointments found in the selected date range.`
                   : selectedFilter === 'Today' 
                     ? 'You have no appointments scheduled for today. Enjoy your free time!' 
                     : selectedFilter === 'Upcoming' 
                       ? 'You have no upcoming appointments scheduled.'
                       : selectedFilter === 'Confirmed' 
                         ? 'You have no confirmed appointments.'
-                        : selectedFilter === 'Completed' 
-                          ? 'You have no completed appointments yet.'
-                          : selectedFilter === 'Cancelled' 
-                            ? 'You have no cancelled appointments.'
-                            : 'Try adjusting your filters or search terms.'}
+                        : selectedFilter === 'In Service' 
+                          ? 'You have no appointments currently in service.'
+                          : selectedFilter === 'Completed' 
+                            ? 'You have no completed appointments yet.'
+                            : selectedFilter === 'Cancelled' 
+                              ? 'You have no cancelled appointments.'
+                              : 'Try adjusting your filters or search terms.'}
               </Text>
-              {(selectedDate || searchQuery) && (
+              {((startDate || endDate) || searchQuery) && (
                 <TouchableOpacity 
                   style={styles.clearFiltersButton}
                   onPress={() => {
-                    setSelectedDate(null);
+                    clearDateRange();
                     setSearchQuery('');
                     setSelectedFilter('Today');
                   }}
@@ -859,18 +773,11 @@ export default function StylistAppointmentsScreen() {
                   />
                 </View>
                 <View style={styles.appointmentDetails}>
-                  <View style={styles.nameRow}>
-                    <Text style={styles.appointmentService}>
-                      {appointment.clientName || 
-                       `${appointment.clientFirstName || ''} ${appointment.clientLastName || ''}`.trim() ||
-                       'Unknown Client'}
-                    </Text>
-                    <StylistBadge
-                      label={getClientType(appointment)}
-                      variant={getClientTypeVariant(getClientType(appointment))}
-                      size="small"
-                    />
-                  </View>
+                  <Text style={styles.appointmentService}>
+                    {appointment.clientName || 
+                     `${appointment.clientFirstName || ''} ${appointment.clientLastName || ''}`.trim() ||
+                     'Unknown Client'}
+                  </Text>
                   {/* Service Display - Only show count for multiple services */}
                   {(appointment as any).serviceStylistPairs && (appointment as any).serviceStylistPairs.length > 0 ? (
                     <Text style={styles.appointmentStylist}>
@@ -1006,11 +913,6 @@ export default function StylistAppointmentsScreen() {
                            `${selectedAppointment.clientFirstName || ''} ${selectedAppointment.clientLastName || ''}`.trim() ||
                            'Unknown Client'}
                         </Text>
-                        <StylistBadge
-                          label={getFullClientTypeLabel(getClientType(selectedAppointment))}
-                          variant={getClientTypeVariant(getClientType(selectedAppointment))}
-                          size="small"
-                        />
                       </View>
                     </View>
                   </View>
@@ -1194,6 +1096,81 @@ export default function StylistAppointmentsScreen() {
           </View>
         </Modal>
       </ScrollView>
+
+      {/* Date Pickers */}
+      <Modal
+        visible={showStartDatePicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowStartDatePicker(false)}
+      >
+        <View style={styles.datePickerModal}>
+          <View style={styles.datePickerContainer}>
+            <View style={styles.datePickerHeader}>
+              <Text style={styles.datePickerTitle}>Select Start Date</Text>
+              <TouchableOpacity onPress={() => setShowStartDatePicker(false)}>
+                <Text style={styles.datePickerDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <Calendar
+              current={startDate ? startDate.toISOString().split('T')[0] : undefined}
+              onDayPress={(day) => {
+                setStartDate(new Date(day.dateString));
+                setShowStartDatePicker(false);
+              }}
+              markedDates={startDate ? {
+                [startDate.toISOString().split('T')[0]]: {
+                  selected: true,
+                  selectedColor: APP_CONFIG.primaryColor,
+                }
+              } : {}}
+              theme={{
+                todayTextColor: APP_CONFIG.primaryColor,
+                selectedDayBackgroundColor: APP_CONFIG.primaryColor,
+                selectedDayTextColor: '#FFFFFF',
+                arrowColor: APP_CONFIG.primaryColor,
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showEndDatePicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowEndDatePicker(false)}
+      >
+        <View style={styles.datePickerModal}>
+          <View style={styles.datePickerContainer}>
+            <View style={styles.datePickerHeader}>
+              <Text style={styles.datePickerTitle}>Select End Date</Text>
+              <TouchableOpacity onPress={() => setShowEndDatePicker(false)}>
+                <Text style={styles.datePickerDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <Calendar
+              current={endDate ? endDate.toISOString().split('T')[0] : undefined}
+              onDayPress={(day) => {
+                setEndDate(new Date(day.dateString));
+                setShowEndDatePicker(false);
+              }}
+              markedDates={endDate ? {
+                [endDate.toISOString().split('T')[0]]: {
+                  selected: true,
+                  selectedColor: APP_CONFIG.primaryColor,
+                }
+              } : {}}
+              theme={{
+                todayTextColor: APP_CONFIG.primaryColor,
+                selectedDayBackgroundColor: APP_CONFIG.primaryColor,
+                selectedDayTextColor: '#FFFFFF',
+                arrowColor: APP_CONFIG.primaryColor,
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenWrapper>
   );
 }
@@ -1280,45 +1257,6 @@ const styles = StyleSheet.create({
     color: '#160B53',
     flex: 1,
   },
-  // Date Picker Carousel
-  datePickerContainer: {
-    paddingRight: 16,
-  },
-  datePickerItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginRight: 8,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
-    minWidth: 70,
-  },
-  datePickerItemSelected: {
-    backgroundColor: APP_CONFIG.primaryColor,
-  },
-  datePickerItemToday: {
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  datePickerDay: {
-    fontSize: 12,
-    fontFamily: FONTS.medium,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  datePickerDaySelected: {
-    color: '#FFFFFF',
-  },
-  datePickerDate: {
-    fontSize: 18,
-    fontFamily: FONTS.bold,
-    color: '#160B53',
-  },
-  datePickerDateSelected: {
-    color: '#FFFFFF',
-  },
   // Date Filter Banner
   dateFilterBanner: {
     backgroundColor: '#EEF2FF',
@@ -1342,112 +1280,78 @@ const styles = StyleSheet.create({
     color: '#160B53',
     flex: 1,
   },
-  // Calendar Styles
-  calendarCard: {
+  // Date Range Picker Styles
+  dateRangeCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  monthHeader: {
+  dateRangeTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+    marginBottom: 16,
+  },
+  dateRangeInputs: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  dateInputContainer: {
+    flex: 1,
+  },
+  dateInputLabel: {
+    fontSize: 14,
+    fontFamily: FONTS.medium,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  dateInput: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  monthNavButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#F3F4F6',
-  },
-  monthTitleContainer: {
-    flex: 1,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  monthTitle: {
-    fontSize: 18,
-    fontFamily: FONTS.semiBold,
-    color: '#160B53',
-  },
-  todayButton: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: APP_CONFIG.primaryColor,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
   },
-  todayButtonText: {
-    fontSize: 12,
-    fontFamily: FONTS.medium,
-    color: '#FFFFFF',
-  },
-  weekDaysRow: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  weekDayCell: {
-    width: (width - 56) / 7,
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  weekDayText: {
-    fontSize: 12,
-    fontFamily: FONTS.semiBold,
+  dateInputText: {
+    fontSize: 14,
+    fontFamily: FONTS.regular,
     color: '#6B7280',
   },
-  calendarGrid: {
+  dateRangeActions: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    gap: 12,
   },
-  dateCell: {
-    width: (width - 56) / 7,
-    aspectRatio: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  clearButton: {
+    flex: 1,
+    paddingVertical: 12,
     borderRadius: 8,
-    marginBottom: 4,
-    position: 'relative',
-  },
-  dateCellToday: {
-    backgroundColor: '#FEF3C7',
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
   },
-  dateCellSelected: {
-    backgroundColor: APP_CONFIG.primaryColor,
-  },
-  dateText: {
+  clearButtonText: {
     fontSize: 14,
     fontFamily: FONTS.medium,
-    color: '#111827',
+    color: '#6B7280',
   },
-  dateTextOtherMonth: {
-    color: '#D1D5DB',
-  },
-  dateTextToday: {
-    color: '#F59E0B',
-    fontFamily: FONTS.bold,
-  },
-  dateTextSelected: {
-    color: '#FFFFFF',
-    fontFamily: FONTS.bold,
-  },
-  appointmentDot: {
-    position: 'absolute',
-    bottom: 4,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+  applyButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
     backgroundColor: APP_CONFIG.primaryColor,
+    alignItems: 'center',
   },
-  appointmentDotSelected: {
-    backgroundColor: '#FFFFFF',
+  applyButtonText: {
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    color: '#FFFFFF',
   },
   // Quick Filter Chips with Count Badges
   quickFilterChip: {
@@ -1469,26 +1373,28 @@ const styles = StyleSheet.create({
   quickFilterText: {
     fontSize: 14,
     fontFamily: FONTS.medium,
-    color: '#6B7280',
+    color: '#374151',
   },
   quickFilterTextActive: {
     color: '#FFFFFF',
   },
   quickFilterBadge: {
-    backgroundColor: '#E5E7EB',
+    marginLeft: 8,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
     minWidth: 24,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   quickFilterBadgeActive: {
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
   },
   quickFilterBadgeText: {
     fontSize: 12,
-    fontFamily: FONTS.semiBold,
-    color: '#374151',
+    fontFamily: FONTS.bold,
+    color: APP_CONFIG.primaryColor,
   },
   quickFilterBadgeTextActive: {
     color: '#FFFFFF',
@@ -1604,19 +1510,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: FONTS.medium,
     color: '#6B7280',
-  },
-  countBadge: {
-    backgroundColor: APP_CONFIG.primaryColor,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    minWidth: 32,
-    alignItems: 'center',
-  },
-  countText: {
-    fontSize: 14,
-    fontFamily: FONTS.bold,
-    color: '#FFFFFF',
   },
   clearFiltersButton: {
     marginTop: 16,
@@ -1768,19 +1661,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   appointmentCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: Platform.OS === 'web' ? 16 : Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 14 : 16,
-    marginBottom: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    shadowColor: Platform.OS === 'web' ? '#000000' : '#000',
-    shadowOffset: Platform.OS === 'web' ? { width: 0, height: 2 } : { width: 0, height: 2 },
-    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.1,
-    shadowRadius: Platform.OS === 'web' ? 15 : 8,
-    elevation: Platform.OS === 'web' ? 0 : 3,
-    width: Platform.OS === 'web' ? '100%' : undefined,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   nextAppointmentCard: {
     backgroundColor: '#F0FDF4',
@@ -1812,15 +1701,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    gap: 12,
   },
   appointmentIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#E3F2FD',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   nextAppointmentIcon: {
     backgroundColor: '#D1FAE5',
@@ -1834,11 +1723,17 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 4,
   },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexWrap: 'wrap',
+  },
   appointmentService: {
     fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
     color: '#160B53',
+    fontFamily: FONTS.semiBold,
     marginBottom: 4,
-    fontFamily: Platform.OS === 'web' ? FONTS.medium : 'Poppins_600SemiBold',
   },
   clientTypeTag: {
     paddingHorizontal: 6,
@@ -1851,8 +1746,8 @@ const styles = StyleSheet.create({
   appointmentStylist: {
     fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
     color: '#666',
-    marginBottom: 8,
-    fontFamily: 'Poppins_400Regular',
+    fontFamily: FONTS.regular,
+    marginBottom: 4,
   },
   servicesList: {
     marginTop: 4,
@@ -1866,7 +1761,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_400Regular',
   },
   appointmentInfo: {
-    gap: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
   },
   appointmentInfoItem: {
     flexDirection: 'row',
@@ -1876,15 +1774,16 @@ const styles = StyleSheet.create({
     fontSize: Platform.OS === 'android' ? 10 : Platform.OS === 'ios' ? 11 : 12,
     color: '#666',
     marginLeft: 6,
-    fontFamily: 'Poppins_400Regular',
+    fontFamily: FONTS.regular,
   },
   appointmentRight: {
     alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   priceText: {
     fontSize: Platform.OS === 'android' ? 14 : Platform.OS === 'ios' ? 15 : 16,
     color: '#160B53',
-    fontFamily: 'Poppins_700Bold',
+    fontFamily: FONTS.bold,
     marginBottom: 8,
   },
   statusBadge: {
@@ -2059,6 +1958,94 @@ const styles = StyleSheet.create({
   filterTabs: {
     flexDirection: 'row',
     gap: 4,
+  },
+  // View Type Tabs Styles
+  viewTypeTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 0,
+  },
+  viewTypeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  viewTypeTabActive: {
+    backgroundColor: '#160B53',
+    borderColor: '#160B53',
+  },
+  viewTypeTabText: {
+    fontSize: 13,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  viewTypeTabTextActive: {
+    color: '#FFFFFF',
+  },
+  viewTypeBadge: {
+    backgroundColor: '#E5E7EB',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewTypeBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  viewTypeBadgeText: {
+    fontSize: 11,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+  },
+  viewTypeBadgeTextActive: {
+    color: '#FFFFFF',
+  },
+  compactViewTypeSelector: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 12,
+  },
+  compactViewTypeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  compactViewTypeBtnActive: {
+    backgroundColor: '#160B53',
+    borderColor: '#160B53',
+  },
+  compactViewTypeText: {
+    fontSize: 12,
+    fontFamily: FONTS.bold,
+    color: '#6B7280',
+  },
+  compactViewTypeTextActive: {
+    color: '#FFFFFF',
+  },
+  quickFiltersScroll: {
+    flex: 1,
+  },
+  quickFiltersCompact: {
+    flexDirection: 'row',
+    gap: 6,
   },
   // Enhanced Modal Styles
   modalBackdrop: {
@@ -2279,5 +2266,36 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: FONTS.regular,
     color: '#6B7280',
+  },
+  // iOS Date Picker Modal Styles
+  datePickerModal: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  datePickerContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  datePickerTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.semiBold,
+    color: '#160B53',
+  },
+  datePickerDone: {
+    fontSize: 16,
+    fontFamily: FONTS.semiBold,
+    color: APP_CONFIG.primaryColor,
   },
 });

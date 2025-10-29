@@ -47,6 +47,7 @@ export default function StylistDashboardScreen() {
     transferClients: 0,
     regularClients: 0,
     todayEarnings: 0,
+    walkInsCount: 0,
   });
 
   // Fetch branch name based on stylist's branchId
@@ -143,9 +144,6 @@ export default function StylistDashboardScreen() {
         console.log('🔄 Real-time update received - Total appointments:', querySnapshot.size);
         
         const appointments: any[] = [];
-        let newClients = 0;
-        let transferClients = 0;
-        let regularClients = 0;
 
         for (const appointmentDoc of querySnapshot.docs) {
           const appointmentData = appointmentDoc.data();
@@ -260,20 +258,114 @@ export default function StylistDashboardScreen() {
           };
 
           appointments.push(appointment);
-          regularClients++;
         }
 
-        // Count today's completed appointments
+        // Count today's completed appointments (clients served)
         const todayClientsServed = appointments.filter(a => a.status === 'completed').length;
 
-        // Calculate today's earnings from completed appointments
-        const todayEarnings = appointments
-          .filter(a => a.status === 'completed')
-          .reduce((sum, a) => {
-            // Extract numeric value from price string (e.g., "₱500" -> 500)
-            const priceValue = parseFloat(a.price.replace(/[^0-9.]/g, '')) || 0;
-            return sum + priceValue;
-          }, 0);
+        // Calculate today's earnings and client types from transactions collection
+        let todayEarnings = 0;
+        let newClients = 0;
+        let transferClients = 0;
+        let regularClients = 0;
+        let walkInsCount = 0;
+        const processedClients = new Set<string>(); // Track unique clients for type counting
+        try {
+          const transactionsRef = collection(db, 'transactions');
+          const transactionsSnapshot = await getDocs(transactionsRef);
+          
+          transactionsSnapshot.forEach((transDoc) => {
+            const transData = transDoc.data();
+            
+            // Check if transaction is from today
+            const transactionDate = transData['createdAt']?.toDate();
+            if (transactionDate) {
+              const transDateString = transactionDate.toISOString().split('T')[0];
+              const todayDateString = today.toISOString().split('T')[0];
+              
+              if (transDateString === todayDateString) {
+                // Count walk-ins (no appointmentId and status is in_service)
+                if (!transData['appointmentId'] && transData['status'] === 'in_service') {
+                  // Check if this transaction has services for this stylist
+                  if (transData['services'] && Array.isArray(transData['services'])) {
+                    const hasStylistService = transData['services'].some((service: any) => service.stylistId === user.id);
+                    if (hasStylistService) {
+                      walkInsCount++;
+                    }
+                  }
+                }
+                
+                // Count client types regardless of payment status (as long as type exists)
+                let hasStylistService = false;
+                let clientTypeFromService = '';
+                
+                if (transData['services'] && Array.isArray(transData['services'])) {
+                  transData['services'].forEach((service: any) => {
+                    if (service.stylistId === user.id) {
+                      hasStylistService = true;
+                      
+                      // Get client type from service
+                      if (!clientTypeFromService && service.clientType) {
+                        clientTypeFromService = service.clientType;
+                      }
+                    }
+                  });
+                }
+                
+                // Count client types (only once per unique client or transaction)
+                // Use clientId if available, otherwise use transaction ID for walk-ins
+                const clientId = transData['clientId'];
+                const uniqueId = clientId || transDoc.id;
+                
+                if (hasStylistService && uniqueId && !processedClients.has(uniqueId)) {
+                  processedClients.add(uniqueId);
+                  
+                  // Explicitly check for each client type including 'R'
+                  if (clientTypeFromService === 'X') {
+                    newClients++;
+                  } else if (clientTypeFromService === 'TR') {
+                    transferClients++;
+                  } else if (clientTypeFromService === 'R') {
+                    regularClients++;
+                  } else if (clientTypeFromService) {
+                    // If there's some other client type value, default to regular
+                    regularClients++;
+                  } else {
+                    // If no client type is set, also count as regular
+                    regularClients++;
+                  }
+                }
+                
+                // Calculate earnings only for paid transactions
+                if (transData['status'] === 'paid') {
+                  if (transData['services'] && Array.isArray(transData['services'])) {
+                    transData['services'].forEach((service: any) => {
+                      if (service.stylistId === user.id) {
+                        // Calculate commission (60% of service total)
+                        const serviceTotal = Number(service.adjustedPrice) || 0;
+                        const commission = serviceTotal * 0.6;
+                        todayEarnings += commission;
+                      }
+                    });
+                  }
+                  
+                  // Add product commissions if stylist sold products
+                  if (transData['products'] && Array.isArray(transData['products']) && transData['products'].length > 0) {
+                    if (hasStylistService) {
+                      transData['products'].forEach((product: any) => {
+                        const productTotal = Number((Number(product.price) || 0) * (Number(product.quantity) || 1));
+                        const commission = productTotal * 0.1;
+                        todayEarnings += commission;
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          });
+        } catch (error) {
+          console.error('❌ Error fetching today\'s earnings:', error);
+        }
 
         // Sort appointments: cancelled appointments at the bottom
         const sortedAppointments = appointments.sort((a, b) => {
@@ -287,14 +379,22 @@ export default function StylistDashboardScreen() {
         setTodayAppointments(sortedAppointments);
         setStats({
           todayAppointments: appointments.length,
-          clientsServed: todayClientsServed, // Today's completed appointments
+          clientsServed: todayClientsServed, // Completed appointments today
           newClients,
           transferClients,
           regularClients,
           todayEarnings,
+          walkInsCount,
         });
 
-        console.log('✅ Real-time update processed:', appointments.length, 'Clients served today:', todayClientsServed);
+        console.log('✅ Real-time update processed:', {
+          appointments: appointments.length,
+          clientsServed: todayClientsServed,
+          newClients,
+          transferClients,
+          regularClients,
+          todayEarnings: todayEarnings.toFixed(2)
+        });
       } catch (error) {
         console.error('❌ Error processing real-time update:', error);
         setTodayAppointments([]);
@@ -508,18 +608,18 @@ export default function StylistDashboardScreen() {
             {/* Main Stats Grid */}
             <View style={styles.statsGrid}>
               <View style={styles.statItem}>
-                <View style={styles.statIconContainer}>
-                  <Ionicons name="calendar" size={20} color="#160B53" />
+                <View style={[styles.statIconContainer, stats.todayAppointments > 0 && { backgroundColor: '#EEF2FF' }]}>
+                  <Ionicons name="calendar" size={20} color={stats.todayAppointments > 0 ? "#6366F1" : "#160B53"} />
                 </View>
-                <Text style={styles.statNumber}>{loading ? '-' : stats.todayAppointments}</Text>
+                <Text style={[styles.statNumber, stats.todayAppointments > 0 && { color: '#6366F1' }]}>{loading ? '-' : stats.todayAppointments}</Text>
                 <Text style={styles.statLabel}>Appointments</Text>
               </View>
               <View style={styles.statItem}>
-                <View style={[styles.statIconContainer, { backgroundColor: '#DBEAFE' }]}>
-                  <Ionicons name="people" size={20} color="#1E40AF" />
+                <View style={[styles.statIconContainer, { backgroundColor: '#F3E8FF' }]}>
+                  <Ionicons name="walk" size={20} color="#8B5CF6" />
                 </View>
-                <Text style={[styles.statNumber, { color: '#1E40AF' }]}>{loading ? '-' : stats.clientsServed}</Text>
-                <Text style={styles.statLabel}>Served</Text>
+                <Text style={[styles.statNumber, { color: '#8B5CF6' }]}>{loading ? '-' : stats.walkInsCount}</Text>
+                <Text style={styles.statLabel}>Walk-ins</Text>
               </View>
               <View style={styles.statItem}>
                 <View style={[styles.statIconContainer, { backgroundColor: '#D1FAE5' }]}>
@@ -566,7 +666,7 @@ export default function StylistDashboardScreen() {
           </View>
         </StylistSection>
 
-        {/* Today's Appointments */}
+        {/* Today's Clients (Merged Appointments & Walk-ins) */}
         <StylistSection>
           <View style={styles.listHeader}>
             <Text style={styles.listTitle}>Today's Appointments</Text>
@@ -588,15 +688,11 @@ export default function StylistDashboardScreen() {
             <Text style={styles.emptyStateText}>
               Enjoy your free day! You have no appointments scheduled for today.
             </Text>
-            <View style={styles.emptyStateHint}>
-              <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
-              <Text style={styles.emptyStateHintText}>
-                The receptionist will assign new appointments to you
-              </Text>
-            </View>
           </View>
         ) : (
-          todayAppointments.map((appointment, index) => {
+          <>
+          {/* Appointments */}
+          {todayAppointments.map((appointment, index) => {
             return (
               <TouchableOpacity 
                 key={appointment.id}
@@ -612,18 +708,11 @@ export default function StylistDashboardScreen() {
                     />
                   </View>
                   <View style={styles.appointmentDetails}>
-                    <View style={styles.nameRow}>
-                      <Text style={styles.appointmentClient}>
-                        {appointment.client || 
-                         `${(appointment as any).clientFirstName || ''} ${(appointment as any).clientLastName || ''}`.trim() ||
-                         'Unknown Client'}
-                      </Text>
-                      <StylistBadge
-                        label={getClientType(appointment)}
-                        variant={getClientTypeVariant(getClientType(appointment))}
-                        size="small"
-                      />
-                    </View>
+                    <Text style={styles.appointmentClient}>
+                      {appointment.client || 
+                       `${(appointment as any).clientFirstName || ''} ${(appointment as any).clientLastName || ''}`.trim() ||
+                       'Unknown Client'}
+                    </Text>
                     {/* Service Display - Only show count for multiple services */}
                     {(appointment as any).serviceStylistPairs && (appointment as any).serviceStylistPairs.length > 0 ? (
                       <Text style={styles.appointmentStylist}>
@@ -692,7 +781,8 @@ export default function StylistDashboardScreen() {
                 </View>
               </TouchableOpacity>
             );
-          })
+          })}
+          </>
         )}
         </StylistSection>
       </ScrollView>
@@ -719,11 +809,6 @@ export default function StylistDashboardScreen() {
                     </View>
                     <View style={styles.modalClientInfo}>
                       <Text style={styles.modalClientName}>{selectedAppointment.client}</Text>
-                      <StylistBadge
-                        label={getFullClientTypeLabel(getClientType(selectedAppointment))}
-                        variant={getClientTypeVariant(getClientType(selectedAppointment))}
-                        size="small"
-                      />
                     </View>
                   </View>
                 </View>
@@ -899,10 +984,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: FONTS.medium,
     color: '#EF4444',
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
   },
   statItem: {
     alignItems: 'center',

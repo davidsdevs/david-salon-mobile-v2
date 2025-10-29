@@ -49,6 +49,24 @@ export class FirebaseAuthService {
         throw new Error('User profile not found. Please contact support.');
       }
       
+      // Check if account is active - ONLY validate isActive field
+      console.log('🔄 Checking isActive field:', { 
+        email: userProfile.email, 
+        isActive: userProfile.isActive,
+        isActiveType: typeof userProfile.isActive,
+        strictCheck: userProfile.isActive === false
+      });
+      
+      // Strict validation: if isActive is explicitly false, block login
+      if (userProfile.isActive === false) {
+        console.log('❌ Account deactivated (isActive === false), blocking login');
+        // Sign out the user immediately
+        await signOut(auth);
+        throw new Error('Your account has been deactivated. Please contact support for assistance.');
+      }
+      
+      console.log('✅ isActive check passed, proceeding with login');
+      
       // Check if user is allowed to login (only client and stylist)
       // First check roles array, then fallback to userType
       const userRoles = userProfile.roles;

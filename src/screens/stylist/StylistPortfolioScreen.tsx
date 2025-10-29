@@ -36,11 +36,17 @@ interface PortfolioItem {
   id: string;
   category: string;
   imageUrl: string;
+  thumbnailUrl: string;
   title: string;
-  description?: string;
+  description: string;
   createdAt: string;
-  status: 'pending' | 'approved' | 'rejected';
-  rejectionReason?: string;
+  status: 'pending' | 'active' | 'rejected';
+  approvedAt?: string;
+  approvedBy?: string;
+  publicId: string;
+  width: number;
+  height: number;
+  stylistId: string;
 }
 
 export default function StylistPortfolioScreen() {
@@ -90,11 +96,17 @@ export default function StylistPortfolioScreen() {
             id: doc.id,
             category: data['category'] || 'Haircut',
             imageUrl: data['imageUrl'] || '',
+            thumbnailUrl: data['thumbnailUrl'] || '',
+            publicId: data['publicId'] || '',
+            width: data['width'] || 0,
+            height: data['height'] || 0,
+            stylistId: data['stylistId'] || '',
             title: data['title'] || 'Untitled',
             description: data['description'] || '',
             createdAt: data['createdAt']?.toDate().toISOString() || new Date().toISOString(),
             status: data['status'] || 'pending',
-            rejectionReason: data['rejectionReason'] || '',
+            approvedAt: data['approvedAt']?.toDate().toISOString(),
+            approvedBy: data['approvedBy'],
           });
         });
 
@@ -128,7 +140,9 @@ export default function StylistPortfolioScreen() {
       const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
       
       // Filter by status
-      const matchesStatus = selectedStatus === 'all' || item.status === selectedStatus;
+      const matchesStatus = selectedStatus === 'all' || 
+        (selectedStatus === 'approved' && item.status === 'active' && item.approvedAt && item.approvedBy) ||
+        (selectedStatus === 'pending' && item.status === 'pending');
       
       // Filter by search query
       const matchesSearch = searchQuery === '' || 
@@ -143,7 +157,7 @@ export default function StylistPortfolioScreen() {
   const stats = {
     all: portfolioItems.length,
     pending: portfolioItems.filter(i => i.status === 'pending').length,
-    approved: portfolioItems.filter(i => i.status === 'approved').length,
+    approved: portfolioItems.filter(i => i.status === 'active' && i.approvedAt && i.approvedBy).length,
     haircut: portfolioItems.filter(i => i.category === 'Haircut').length,
     color: portfolioItems.filter(i => i.category === 'Color').length,
     styling: portfolioItems.filter(i => i.category === 'Styling').length,
@@ -404,10 +418,10 @@ export default function StylistPortfolioScreen() {
 
   // For mobile, use ScreenWrapper with header
   return (
-    <ScreenWrapper title="Portfolio" userType="stylist" showBackButton={true}>
+    <ScreenWrapper title="Portfolio" userType="stylist" showBackButton={false}>
       <ScrollView ref={scrollViewRef} style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Category Filter */}
-        <StylistSection style={styles.categorySection}>
+        <StylistSection>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.categoryContainer}>
               {categories.map((category) => {
@@ -533,7 +547,7 @@ export default function StylistPortfolioScreen() {
                         color={selectedStatus === 'approved' ? '#160B53' : '#6B7280'} 
                       />
                       <Text style={[styles.sortDropdownText, selectedStatus === 'approved' && styles.sortDropdownTextActive]}>
-                        Approved ({stats.approved})
+                        Approved ({portfolioItems.filter(i => i.status === 'active' && i.approvedAt && i.approvedBy).length})
                       </Text>
                       {selectedStatus === 'approved' && (
                         <Ionicons name="checkmark" size={18} color="#160B53" />
@@ -544,6 +558,11 @@ export default function StylistPortfolioScreen() {
               </View>
             </View>
           </View>
+        </StylistSection>
+
+        {/* My Works Title */}
+        <StylistSection isTitle>
+          <Text style={styles.sectionTitle}>My Works</Text>
         </StylistSection>
 
         {/* Portfolio Gallery */}
@@ -594,15 +613,15 @@ export default function StylistPortfolioScreen() {
                     {/* Status Badge */}
                     <View style={[
                       styles.statusBadge,
-                      item.status === 'approved' ? styles.statusBadgeApproved : styles.statusBadgePending
+                      (item.status === 'active' && item.approvedAt && item.approvedBy) ? styles.statusBadgeApproved : styles.statusBadgePending
                     ]}>
                       <Ionicons 
-                        name={item.status === 'approved' ? 'checkmark-circle' : 'time'} 
+                        name={(item.status === 'active' && item.approvedAt && item.approvedBy) ? 'checkmark-circle' : 'time'} 
                         size={14} 
                         color="#FFFFFF" 
                       />
                       <Text style={styles.statusBadgeText}>
-                        {item.status === 'approved' ? 'Approved' : 'Pending'}
+                        {(item.status === 'active' && item.approvedAt && item.approvedBy) ? 'Approved' : 'Pending'}
                       </Text>
                     </View>
                   </View>
@@ -640,12 +659,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
-  categorySection: {
-    marginTop: 0,
-    marginBottom: 8,
-  },
-  searchSection: {
-    marginTop: 0,
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.bold,
+    color: '#160B53',
+    marginBottom: 0,
   },
   webContainer: {
     flex: 1,
