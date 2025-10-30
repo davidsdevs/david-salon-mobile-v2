@@ -25,7 +25,6 @@ import {
   StylistBadge,
 } from '../../components/stylist';
 import { APP_CONFIG, FONTS } from '../../constants';
-import { AppointmentService } from '../../services/appointmentService';
 import { useAuth } from '../../hooks/redux';
 import { Appointment } from '../../types';
 import { collection, onSnapshot } from 'firebase/firestore';
@@ -83,16 +82,85 @@ export default function StylistAppointmentsScreen() {
     setLoading(true);
     setError(null);
 
-    // Set up real-time listener
-    const unsubscribe = AppointmentService.subscribeToStylistAppointments(
-      user.uid,
-      (updatedAppointments) => {
-        console.log('📡 Real-time update received:', updatedAppointments.length, 'appointments');
-        setAppointments(updatedAppointments);
+    const appointmentsRef = collection(db, 'appointments');
+    
+    // Set up real-time listener using onSnapshot directly (like Dashboard and Earnings screens)
+    const unsubscribe = onSnapshot(appointmentsRef, async (querySnapshot) => {
+      try {
+        console.log('📡 Real-time snapshot received:', querySnapshot.size, 'total appointments');
+        const fetchedAppointments: Appointment[] = [];
+
+        for (const docSnapshot of querySnapshot.docs) {
+          const appointmentData = docSnapshot.data();
+          
+          // Check if this appointment belongs to the current stylist
+          let isStylistAppointment = false;
+          
+          // Check direct stylistId field
+          if (appointmentData['stylistId'] === user.uid) {
+            isStylistAppointment = true;
+          }
+          
+          // Check serviceStylistPairs array
+          if (appointmentData['serviceStylistPairs'] && Array.isArray(appointmentData['serviceStylistPairs'])) {
+            const hasStylist = appointmentData['serviceStylistPairs'].some(
+              (pair: any) => pair.stylistId === user.uid
+            );
+            if (hasStylist) {
+              isStylistAppointment = true;
+            }
+          }
+          
+          // Check assignedStylistId field
+          if (appointmentData['assignedStylistId'] === user.uid) {
+            isStylistAppointment = true;
+          }
+          
+          // Skip if not this stylist's appointment
+          if (!isStylistAppointment) {
+            continue;
+          }
+
+          // Map the appointment data
+          const appointment: Appointment = {
+            id: docSnapshot.id,
+            clientId: appointmentData['clientId'] || '',
+            clientName: appointmentData['clientName'] || '',
+            clientFirstName: appointmentData['clientFirstName'] || '',
+            clientLastName: appointmentData['clientLastName'] || '',
+            clientPhone: appointmentData['clientPhone'] || '',
+            clientEmail: appointmentData['clientEmail'] || '',
+            appointmentDate: appointmentData['appointmentDate'] || appointmentData['date'] || '',
+            appointmentTime: appointmentData['appointmentTime'] || appointmentData['startTime'] || '',
+            status: appointmentData['status'] || 'scheduled',
+            serviceStylistPairs: appointmentData['serviceStylistPairs'] || [],
+            serviceIds: appointmentData['serviceIds'] || [],
+            stylistId: appointmentData['stylistId'] || '',
+            branchId: appointmentData['branchId'] || '',
+            clientType: appointmentData['clientType'] || '',
+            notes: appointmentData['notes'] || '',
+            // Add any other fields needed
+            date: appointmentData['date'] || appointmentData['appointmentDate'] || '',
+            startTime: appointmentData['startTime'] || appointmentData['appointmentTime'] || '',
+          } as Appointment;
+
+          fetchedAppointments.push(appointment);
+        }
+
+        console.log('✅ Real-time callback with', fetchedAppointments.length, 'stylist appointments');
+        setAppointments(fetchedAppointments);
         setLoading(false);
         setError(null);
+      } catch (error) {
+        console.error('❌ Error processing real-time appointments:', error);
+        setError('Failed to load appointments');
+        setLoading(false);
       }
-    );
+    }, (error) => {
+      console.error('❌ Error in real-time appointment subscription:', error);
+      setError('Failed to load appointments');
+      setLoading(false);
+    });
 
     // Cleanup subscription on unmount
     return () => {
@@ -2179,17 +2247,17 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   countBadge: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: APP_CONFIG.primaryColor,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 4,
     borderRadius: 12,
     minWidth: 32,
     alignItems: 'center',
   },
   countText: {
-    fontSize: Platform.OS === 'android' ? 12 : Platform.OS === 'ios' ? 13 : 14,
-    color: '#160B53',
-    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 14,
+    fontFamily: FONTS.bold,
+    color: '#FFFFFF',
   },
   errorContainer: {
     padding: 20,
